@@ -27,7 +27,7 @@
   },
   "scripts": {
     "check": "oxfmt --config .oxfmtrc.json --write . && oxlint --config .oxlintrc.json --fix --type-aware --type-check . && bun run test",
-    "prepublishOnly": "bun run check",
+    "release": "bun ./scripts/release.ts",
     "test": "bun test ./test --dots"
   },
   "dependencies": {

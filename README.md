@@ -247,8 +247,35 @@ From this package directory, run `bun run check` for formatting, lint, types,
 and tests, or `bun run test` for tests alone. The integration tests use real Git
 worktrees and mock Herdr/Pi commands; they never launch actual agents.
 
-`npm publish` runs the full check through `prepublishOnly` and publishes
-`@dpeek/codeless` with public access.
+From a clean `main` checkout, publish the next patch release with:
+
+```sh
+bun run release
+```
+
+The script verifies npm authentication, runs the full check and an npm package
+dry run, increments the patch version, commits `package.json` with the version as
+the complete commit message, creates the matching version tag, and publishes
+`@dpeek/codeless`. It intentionally does not push the commit or tag.
+
+For non-interactive local publishing, create an npm granular access token with
+read/write access to `@dpeek/codeless` (or the `@dpeek` scope) and **Bypass 2FA**
+enabled. Put the token in the repository's ignored `.env` file:
+
+```sh
+NPM_TOKEN=npm_your_token_here
+```
+
+Reference that variable from your user-level `~/.npmrc`:
+
+```ini
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+```
+
+`bun run release` loads `.env` and passes the token to npm. Never put the token
+directly in a committed `.npmrc` or source file. If npm package settings disallow
+tokens, publishing will still require an OTP. For hosted CI, prefer npm trusted
+publishing instead of a long-lived token.
 
 Keep source, tests, executable, extension, and dependencies inside this project.
 Keep project policies and real prompts outside it. Add automation only for
