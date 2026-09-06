@@ -8,6 +8,7 @@ import {
   readdirSync,
   realpathSync,
   rmdirSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -20,6 +21,7 @@ import { roleSelectionArguments, roleSelectionSummary, validateRoleSelection } f
 import { readProject } from "./project.ts";
 
 const usage = `Usage:
+  codeless init
   codeless create <slug>
   codeless open <slug>
   codeless planner <slug>
@@ -36,7 +38,8 @@ export async function runCodeless(args: string[]): Promise<void> {
     return;
   }
   const repository = canonicalPath(run("git", ["rev-parse", "--show-toplevel"]).trim());
-  const { integrationBranch } = readProject(repository);
+  const project = readProject(repository);
+  const { integrationBranch } = project;
   run("git", ["check-ref-format", "--branch", integrationBranch], repository);
   const plannerExtension = resolve(import.meta.dir, "../extension/planner.js");
   const configuredWorkspace = Bun.spawnSync(
@@ -123,28 +126,146 @@ export async function runCodeless(args: string[]): Promise<void> {
       .join("-");
   }
 
-  function integrationWorktree(): string {
-    const entries = run("git", ["worktree", "list", "--porcelain", "-z"], repository).split("\0\0");
-    for (const entry of entries) {
-      const fields = entry.split("\0");
-      if (fields.includes(`branch refs/heads/${integrationBranch}`)) {
+  type Worktree = { path: string; branch?: string };
+
+  function registeredWorktrees(): Worktree[] {
+    return run("git", ["worktree", "list", "--porcelain", "-z"], repository)
+      .split("\0\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const fields = entry.split("\0");
         const path = fields.find((field) => field.startsWith("worktree "))?.slice(9);
-        if (path !== undefined) return path;
-      }
-    }
-    throw new Error(`${integrationBranch} needs a dedicated integration worktree`);
+        if (path === undefined) throw new Error("Git did not report a worktree path");
+        const branch = fields.find((field) => field.startsWith("branch "))?.slice(7);
+        return { path: canonicalPath(path), ...(branch === undefined ? {} : { branch }) };
+      });
+  }
+
+  function integrationWorktree(): string {
+    const matches = registeredWorktrees().filter(
+      (worktree) => worktree.branch === `refs/heads/${integrationBranch}`,
+    );
+    if (matches.length !== 1)
+      throw new Error(`${integrationBranch} needs exactly one dedicated integration worktree`);
+    return matches[0]!.path;
   }
 
   function primaryWorktree(): string {
-    const entry = run("git", ["worktree", "list", "--porcelain", "-z"], repository).split(
-      "\0\0",
-    )[0];
-    const path = entry
-      ?.split("\0")
-      .find((field) => field.startsWith("worktree "))
-      ?.slice(9);
+    const path = registeredWorktrees()[0]?.path;
     if (path === undefined) throw new Error("Git did not report a primary worktree");
-    return canonicalPath(path);
+    return path;
+  }
+
+  function init(): void {
+    run("git", ["show-ref", "--verify", `refs/heads/${integrationBranch}`], repository);
+    const primary = primaryWorktree();
+    const target = canonicalPath(join(workspaceRoot, "worktree", integrationBranch));
+    const matchingBranch = registeredWorktrees().filter(
+      (worktree) => worktree.branch === `refs/heads/${integrationBranch}`,
+    );
+    const targetExists = existsSync(target);
+
+    let workspaceParent = workspaceRoot;
+    while (!existsSync(workspaceParent)) workspaceParent = dirname(workspaceParent);
+    if (!statSync(workspaceParent).isDirectory()) {
+      throw new Error(`Workspace parent is not a directory: ${workspaceParent}`);
+    }
+    const worktreeRoot = join(workspaceRoot, "worktree");
+    const stateDirectories: [string, string][] = [
+      ["Workspace", workspaceRoot],
+      ["Workspace stream path", join(workspaceRoot, "stream")],
+      ["Workspace worktree path", worktreeRoot],
+      ["Workspace metrics path", join(workspaceRoot, "metrics")],
+    ];
+    for (const [label, path] of stateDirectories) {
+      if (existsSync(path) && !statSync(path).isDirectory()) {
+        throw new Error(`${label} is not a directory: ${path}`);
+      }
+    }
+    const defaultWorkspace = workspaceRoot === canonicalPath(join(primary, ".codeless", "state"));
+    const ignoreFile = join(primary, ".gitignore");
+    let stateIgnored = false;
+    if (defaultWorkspace) {
+      if (existsSync(ignoreFile) && !statSync(ignoreFile).isFile()) {
+        throw new Error(`Repository ignore file is not a file: ${ignoreFile}`);
+      }
+
+      function ignoredByRepository(path: string): boolean {
+        const effective = Bun.spawnSync(["git", "check-ignore", "-q", "--no-index", path], {
+          cwd: primary,
+          env: process.env,
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        if (effective.exitCode === 1) return false;
+        if (effective.exitCode !== 0) {
+          throw new Error(
+            effective.stderr.toString().trim() || "Could not inspect repository ignores",
+          );
+        }
+        const source = run("git", ["check-ignore", "-v", "--no-index", path], primary).split(
+          ":",
+          1,
+        )[0];
+        return source === ".gitignore" || source === ignoreFile;
+      }
+
+      const protectedPaths = [
+        ".codeless/config.json",
+        ...["change", "implement", "review", "commit"].map((name) =>
+          join(project.prompts, `${name}.md`),
+        ),
+      ];
+      if (protectedPaths.some((path) => ignoredByRepository(path))) {
+        throw new Error(
+          `Repository ignore rule conflicts with Codeless configuration or prompts; narrow ${ignoreFile} to /.codeless/state/`,
+        );
+      }
+      stateIgnored = ignoredByRepository(join(".codeless", "state", ".codeless-init-probe"));
+    }
+
+    if (matchingBranch.length > 1) {
+      throw new Error(`Git reports ${integrationBranch} checked out in multiple worktrees`);
+    }
+    if (matchingBranch.length === 1 && matchingBranch[0]!.path !== target) {
+      throw new Error(
+        `${integrationBranch} is checked out at ${matchingBranch[0]!.path}, expected ${target}`,
+      );
+    }
+    if (matchingBranch.length === 1 && (!targetExists || !statSync(target).isDirectory())) {
+      throw new Error(
+        `Git registers ${integrationBranch} at invalid integration worktree ${target}`,
+      );
+    }
+    if (
+      matchingBranch.length === 1 &&
+      run("git", ["branch", "--show-current"], target).trim() !== integrationBranch
+    ) {
+      throw new Error(`Integration worktree is not on ${integrationBranch}: ${target}`);
+    }
+    if (matchingBranch.length === 0 && targetExists) {
+      throw new Error(`Integration worktree target is occupied: ${target}`);
+    }
+
+    if (defaultWorkspace && !stateIgnored) {
+      const currentIgnore = existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8") : "";
+      appendFileSync(
+        ignoreFile,
+        `${currentIgnore.length > 0 && !currentIgnore.endsWith("\n") ? "\n" : ""}/.codeless/state/\n`,
+      );
+    }
+    mkdirSync(join(workspaceRoot, "stream"), { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+    mkdirSync(join(workspaceRoot, "metrics"), { recursive: true });
+    if (matchingBranch.length === 0) {
+      run("git", ["worktree", "add", target, integrationBranch], repository);
+    }
+
+    console.log(`Integration branch: ${integrationBranch}`);
+    console.log(`Primary checkout: ${primary}`);
+    console.log(`Workspace: ${workspaceRoot}`);
+    console.log(`Integration worktree: ${target}`);
   }
 
   function requireDirection(slug: string, worktree: string): string {
@@ -785,6 +906,11 @@ export async function runCodeless(args: string[]): Promise<void> {
     }
   }
 
+  if (action === "init") {
+    if (target !== undefined || details.length > 0) throw new Error(usage);
+    init();
+    return;
+  }
   if (action === "metrics") {
     if (target !== undefined || details.length > 0) throw new Error(usage);
     for (const line of metricReport(workspaceRoot)) console.log(line);

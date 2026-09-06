@@ -49,6 +49,18 @@ Git-ignored, and every linked worktree resolves the same primary-checkout state:
   metrics/<slug>/NNN.json
 ```
 
+`codeless init` is the explicit, idempotent bootstrap for a configured project.
+It requires the configured integration branch to exist and creates the shared
+state directories plus that branch's worktree only at
+`<workspace>/worktree/<integration-branch>`. It reuses only the exact registered
+canonical checkout. An occupied target, a branch registered elsewhere, invalid
+checkout, or ambiguous Git registration stops unchanged; init never switches
+branches, moves worktrees, or repairs conflicts. With the default workspace,
+it accepts a repository ignore rule only when it ignores the state path without
+covering configuration or configured prompts, otherwise appending the narrow
+`/.codeless/state/` rule. An absolute workspace never changes repository
+ignores. No other command bootstraps this layout.
+
 `planner.md` owns decisions, approvals, review outcomes, landing history, and
 the context needed by a fresh planner. `change.md` is the editable current
 proposal. `changes/NNN.md` is the immutable-by-policy approved input to one

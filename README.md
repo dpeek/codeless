@@ -157,6 +157,15 @@ planners or worktree shells are running.
   metrics/<slug>/NNN.json # first dispatch, landing time, and landed commit
 ```
 
+Run `codeless init` once after configuring a project. It creates the shared state
+layout and the dedicated integration worktree at
+`<workspace>/worktree/<integration-branch>` without requiring Herdr. For the
+default workspace it adds only `/.codeless/state/` to the primary checkout's
+`.gitignore`; an absolute workspace override does not modify repository ignores.
+It is safe to repeat when that exact worktree is registered. It stops rather
+than moving a branch checkout, replacing an occupied target, or broadening a
+repository ignore rule that covers configuration or prompts.
+
 Normal `git clean -fd` preserves ignored state. `git clean -fdx` removes ignored
 files and can therefore destroy local Codeless journals, metrics, and worktrees;
 inspect its targets before using it.
@@ -167,6 +176,7 @@ Run creation, opening, and planner launch from a Herdr-managed shell. Landing
 needs no Herdr session.
 
 ```sh
+codeless init
 codeless create <slug>
 codeless open <slug>
 codeless planner <slug>
@@ -177,7 +187,11 @@ codeless next <numbered-change-file> <landed-commit>
 codeless metrics
 ```
 
-Slugs are lowercase kebab-case, at most 24 characters. `create` starts
+Slugs are lowercase kebab-case, at most 24 characters. `init` validates the
+existing configuration and integration branch, reports the branch, primary
+checkout, workspace, and integration worktree, then creates only the shared
+state directories and canonical integration worktree when absent. All other
+commands validate their prerequisites and never bootstrap this setup. `create` starts
 `stream/<slug>` from the integration branch and creates its local documents;
 it refuses existing streams. `open` resumes a stream. Both run the configured
 install command, then validate and open a planner beside an idle shell. `planner`

@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -147,6 +148,15 @@ function fixture(integrationBranch = "main") {
   return { root, personal, workspace, main, stream, documents };
 }
 
+function uninitializedFixture() {
+  const f = fixture();
+  git(f.personal, "worktree", "remove", "--force", f.stream);
+  git(f.personal, "worktree", "remove", "--force", f.main);
+  rmSync(f.workspace, { recursive: true, force: true });
+  writeFileSync(join(f.personal, ".gitignore"), ".installed.json\n");
+  return f;
+}
+
 function change(cwd: string, file: string, content: string, message = "One change"): string {
   writeFileSync(join(cwd, file), content);
   git(cwd, "add", file);
@@ -166,6 +176,117 @@ function streams(cwd: string, args: string[], extraEnv: Record<string, string> =
 }
 
 describe("Codeless integration", () => {
+  test("init bootstraps and reuses the default shared workspace without Herdr", () => {
+    const f = uninitializedFixture();
+    const result = streams(f.personal, ["init"]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(result.stdout).toContain(`Integration branch: main`);
+    expect(result.stdout).toContain(`Primary checkout: ${f.personal}`);
+    expect(result.stdout).toContain(`Workspace: ${f.workspace}`);
+    expect(result.stdout).toContain(`Integration worktree: ${join(f.workspace, "worktree/main")}`);
+    expect(readFileSync(join(f.personal, ".gitignore"), "utf8")).toBe(
+      ".installed.json\n/.codeless/state/\n",
+    );
+    for (const directory of ["stream", "worktree", "metrics", "worktree/main"]) {
+      expect(statSync(join(f.workspace, directory)).isDirectory()).toBe(true);
+    }
+    const before = readFileSync(join(f.personal, ".gitignore"), "utf8");
+    const head = git(join(f.workspace, "worktree/main"), "rev-parse", "HEAD");
+    expect(streams(f.personal, ["init"])).toMatchObject({ code: 0, stderr: "" });
+    expect(readFileSync(join(f.personal, ".gitignore"), "utf8")).toBe(before);
+    expect(git(join(f.workspace, "worktree/main"), "rev-parse", "HEAD")).toBe(head);
+  });
+
+  test("init supports an absolute workspace without changing repository ignores", () => {
+    const f = uninitializedFixture();
+    const workspace = join(f.root, "custom workspace");
+    const ignore = readFileSync(join(f.personal, ".gitignore"), "utf8");
+    git(f.personal, "config", "codeless.workspaceRoot", workspace);
+    const result = streams(f.personal, ["init"]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(result.stdout).toContain(`Workspace: ${workspace}`);
+    expect(existsSync(join(workspace, "worktree/main"))).toBe(true);
+    expect(readFileSync(join(f.personal, ".gitignore"), "utf8")).toBe(ignore);
+  });
+
+  test("init does not inspect repository ignores for a custom workspace", () => {
+    const f = uninitializedFixture();
+    const workspace = join(f.root, "custom workspace");
+    rmSync(join(f.personal, ".gitignore"));
+    mkdirSync(join(f.personal, ".gitignore"));
+    git(f.personal, "config", "codeless.workspaceRoot", workspace);
+    expect(streams(f.personal, ["init"])).toMatchObject({ code: 0, stderr: "" });
+    expect(statSync(join(f.personal, ".gitignore")).isDirectory()).toBe(true);
+  });
+
+  test("init leaves occupied or incompatible integration worktrees untouched", () => {
+    const occupied = uninitializedFixture();
+    const target = join(occupied.workspace, "worktree/main");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "user-file"), "keep\n");
+    const ignore = readFileSync(join(occupied.personal, ".gitignore"), "utf8");
+    const blocked = streams(occupied.personal, ["init"]);
+    expect(blocked.stderr).toContain("Integration worktree target is occupied");
+    expect(readFileSync(join(target, "user-file"), "utf8")).toBe("keep\n");
+    expect(readFileSync(join(occupied.personal, ".gitignore"), "utf8")).toBe(ignore);
+
+    const incompatible = uninitializedFixture();
+    const elsewhere = join(incompatible.root, "elsewhere");
+    git(incompatible.personal, "worktree", "add", elsewhere, "main");
+    const rejected = streams(incompatible.personal, ["init"]);
+    expect(rejected.stderr).toContain(`main is checked out at ${elsewhere}`);
+    expect(existsSync(join(incompatible.workspace, "worktree/main"))).toBe(false);
+    expect(readFileSync(join(incompatible.personal, ".gitignore"), "utf8")).toBe(
+      ".installed.json\n",
+    );
+  });
+
+  test("init rejects invalid setup before changing repository state", () => {
+    const missingBranch = uninitializedFixture();
+    git(missingBranch.personal, "branch", "-D", "main");
+    const before = readFileSync(join(missingBranch.personal, ".gitignore"), "utf8");
+    expect(streams(missingBranch.personal, ["init"]).stderr).toContain("refs/heads/main");
+    expect(existsSync(missingBranch.workspace)).toBe(false);
+    expect(readFileSync(join(missingBranch.personal, ".gitignore"), "utf8")).toBe(before);
+
+    const broadIgnore = uninitializedFixture();
+    writeFileSync(join(broadIgnore.personal, ".gitignore"), "/.codeless/\n");
+    const blocked = streams(broadIgnore.personal, ["init"]);
+    expect(blocked.stderr).toContain("conflicts with Codeless configuration or prompts");
+    expect(existsSync(broadIgnore.workspace)).toBe(false);
+    expect(readFileSync(join(broadIgnore.personal, ".gitignore"), "utf8")).toBe("/.codeless/\n");
+
+    const invalidConfig = uninitializedFixture();
+    rmSync(join(invalidConfig.personal, ".codeless/config.json"));
+    expect(streams(invalidConfig.personal, ["init"]).stderr).toContain(
+      "Invalid Codeless project configuration",
+    );
+    expect(existsSync(invalidConfig.workspace)).toBe(false);
+  });
+
+  test("init recognizes effective ignore rules and protects configured prompt files", () => {
+    const valid = uninitializedFixture();
+    writeFileSync(join(valid.personal, ".gitignore"), "/.codeless/state/\n");
+    expect(streams(valid.personal, ["init"])).toMatchObject({ code: 0, stderr: "" });
+    expect(readFileSync(join(valid.personal, ".gitignore"), "utf8")).toBe("/.codeless/state/\n");
+
+    const negated = uninitializedFixture();
+    writeFileSync(
+      join(negated.personal, ".gitignore"),
+      "/.codeless/*\n!/.codeless/config.json\n!/.codeless/state/\n",
+    );
+    expect(streams(negated.personal, ["init"])).toMatchObject({ code: 0, stderr: "" });
+    expect(readFileSync(join(negated.personal, ".gitignore"), "utf8")).toBe(
+      "/.codeless/*\n!/.codeless/config.json\n!/.codeless/state/\n/.codeless/state/\n",
+    );
+
+    const ignoredPrompts = uninitializedFixture();
+    writeFileSync(join(ignoredPrompts.personal, ".gitignore"), "/instructions/*.md\n");
+    const blocked = streams(ignoredPrompts.personal, ["init"]);
+    expect(blocked.stderr).toContain("conflicts with Codeless configuration or prompts");
+    expect(existsSync(ignoredPrompts.workspace)).toBe(false);
+  });
+
   test("approval exclusively promotes a valid current proposal and reconciles retries", () => {
     const f = fixture();
     const proposal = `# Safe approval\n\n## Why\n\nBecause.\n\n## Change\n\nDo it.\n\n## Acceptance\n\nIt works.\n\n## Decisions\n\nNone.\n`;
