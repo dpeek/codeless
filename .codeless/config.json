@@ -1,0 +1,17 @@
+{
+  "integrationBranch": "main",
+  "directions": "todo",
+  "prompts": ".codeless/prompts",
+  "install": ["bun", "install", "--frozen-lockfile"],
+  "check": ["bun", "run", "check"],
+  "planner": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "thinking": "high"
+  },
+  "implementer": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-terra",
+    "thinking": "medium"
+  }
+}

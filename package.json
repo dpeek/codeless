@@ -1,0 +1,47 @@
+{
+  "name": "@dpeek/codeless",
+  "version": "0.1.0",
+  "description": "An attended planner and implementer workflow for parallel capability development",
+  "homepage": "https://github.com/dpeek/codeless#readme",
+  "bugs": {
+    "url": "https://github.com/dpeek/codeless/issues"
+  },
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dpeek/codeless.git"
+  },
+  "bin": {
+    "codeless": "bin/codeless"
+  },
+  "files": [
+    "bin",
+    "extension",
+    "src",
+    "README.md",
+    "spec"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "oxfmt --config .oxfmtrc.json --write . && oxlint --config .oxlintrc.json --fix --type-aware --type-check . && bun run test",
+    "prepublishOnly": "bun run check",
+    "test": "bun test ./test --dots"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "oxfmt": "0.64.0",
+    "oxlint": "1.79.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "^7"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "packageManager": "bun@1.4.0"
+}

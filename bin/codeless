@@ -1,0 +1,10 @@
+#!/usr/bin/env bun
+
+import { runCodeless } from "../src/cli.ts";
+
+try {
+  await runCodeless(process.argv.slice(2));
+} catch (error) {
+  console.error(`codeless: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+}
