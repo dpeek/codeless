@@ -14,24 +14,6 @@ aggregation. Add review-rework and failure-category reporting without changing
 the approval boundary or turning metrics into journal or recovery state. Planning
 usage before a numbered change exists may remain attributed to the stream.
 
-## Tool-owned remediation
-
-Review currently sends remediation through a handwritten `herdr agent prompt`
-command with Herdr's default wait behavior. This duplicates pane/session
-knowledge already owned by dispatch and can time out while the implementer is
-still doing useful work.
-
-Add a planner-only remediation tool that accepts the approved change path and
-concise feedback, verifies and reuses that change's implementer, waits with the
-same bounded long-running policy as dispatch, records one rework attempt, and
-queues review again on success. It should return the structured implementer
-result and stop visibly on timeout or identity/worktree mismatch. Do not add an
-automatic retry loop.
-
-If graceful implementer shutdown continues to require pane/session knowledge,
-give that transition the same tool-owned treatment rather than leaving a second
-manual Herdr recipe in the review prompt.
-
 ## Planner startup efficiency
 
 Fresh planners currently reread every numbered change before deciding whether

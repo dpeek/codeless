@@ -6,6 +6,8 @@ const thinkingLevels = new Set(["off", "minimal", "low", "medium", "high", "xhig
 const requiredTools = [
   "approve_stream_change",
   "dispatch_stream_implementer",
+  "rework_stream_implementer",
+  "finish_stream_implementer",
   "next_stream_change",
 ];
 
@@ -286,6 +288,98 @@ export default function plannerExtension(pi) {
             },
           ],
           details: approval,
+        };
+      },
+    });
+
+    pi.registerTool({
+      name: "rework_stream_implementer",
+      label: "Remediate stream implementation",
+      description:
+        "Reuse the idle implementer for this approved change, submit one actionable feedback turn, collect its rework attempt, and queue review again.",
+      promptSnippet: "Send one concise remediation request to the existing stream implementer",
+      promptGuidelines: [
+        "Call rework_stream_implementer only when review finds actionable defects in the approved change. Use its approved changePath and concise feedback; never reproduce Herdr commands.",
+        "The tool queues review only after a settled rework attempt. Stop on any error and do not retry automatically.",
+      ],
+      parameters: {
+        type: "object",
+        properties: {
+          changePath: {
+            type: "string",
+            description: "Absolute path to the approved changes/NNN.md file",
+          },
+          feedback: { type: "string", description: "Concise actionable review feedback" },
+        },
+        required: ["changePath", "feedback"],
+        additionalProperties: false,
+      },
+      async execute(_toolCallId, params, signal) {
+        const changePath = params.changePath.replace(/^@/, "");
+        const execution = await pi.exec("bun", [codeless, "rework", changePath, params.feedback], {
+          signal,
+          timeout: 3_700_000,
+        });
+        const output = [execution.stdout.trim(), execution.stderr.trim()]
+          .filter(Boolean)
+          .join("\n");
+        if (execution.code !== 0)
+          throw new Error(output || `codeless rework failed with exit code ${execution.code}`);
+        let attempt;
+        try {
+          attempt = JSON.parse(execution.stdout);
+        } catch {
+          throw new Error("Codeless returned an invalid rework attempt");
+        }
+        if (!validAttempt(attempt, attempt?.stream, attempt?.change) || attempt.kind !== "rework")
+          throw new Error("Codeless returned an invalid rework attempt");
+        pi.sendUserMessage(`/review ${JSON.stringify(changePath)}`, {
+          deliverAs: "steer",
+          expandPromptTemplates: true,
+        });
+        return {
+          content: [{ type: "text", text: attempt.text || "Implementer rework settled." }],
+          details: { changePath, attempt },
+        };
+      },
+    });
+
+    pi.registerTool({
+      name: "finish_stream_implementer",
+      label: "Finish stream implementer",
+      description:
+        "Gracefully exit the verified idle implementer after review approval and confirm its right-hand pane returned to the stream shell.",
+      promptSnippet: "Finish the approved stream implementer before commit and landing",
+      promptGuidelines: [
+        "Call finish_stream_implementer exactly once after recording review approval and before following commit-and-land instructions.",
+        "Stop on failure; do not use Herdr commands or continue to commit and land.",
+      ],
+      parameters: {
+        type: "object",
+        properties: {
+          changePath: {
+            type: "string",
+            description: "Absolute path to the approved changes/NNN.md file",
+          },
+        },
+        required: ["changePath"],
+        additionalProperties: false,
+      },
+      async execute(_toolCallId, params, signal) {
+        const changePath = params.changePath.replace(/^@/, "");
+        const execution = await pi.exec("bun", [codeless, "finish", changePath], {
+          signal,
+          timeout: 35_000,
+        });
+        const output = [execution.stdout.trim(), execution.stderr.trim()]
+          .filter(Boolean)
+          .join("\n");
+        if (execution.code !== 0)
+          throw new Error(output || `codeless finish failed with exit code ${execution.code}`);
+        return {
+          content: [
+            { type: "text", text: "Implementer exited and its pane returned to the stream shell." },
+          ],
         };
       },
     });

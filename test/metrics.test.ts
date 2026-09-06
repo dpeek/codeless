@@ -24,6 +24,7 @@ test("attempt ingestion is idempotent and preserves the first dispatch timestamp
     stream: "queries",
     change: "001",
     role: "implementer" as const,
+    kind: "initial" as const,
     startedAt: "2026-01-01T00:00:00.000Z",
     endedAt: "2026-01-01T00:00:01.000Z",
     outcome: "stop",
@@ -38,6 +39,7 @@ test("attempt ingestion is idempotent and preserves the first dispatch timestamp
       "001",
     ),
   ).toBe(false);
+  expect(validAttempt({ ...attempt, kind: "unknown" }, "queries", "001")).toBe(false);
   recordAttempt(workspace, "queries", "001", attempt);
   const first = readFileSync(path, "utf8");
   recordAttempt(workspace, "queries", "001", attempt);
@@ -62,6 +64,7 @@ test("complete attempts require final implementer text and full-session usage", 
     stream: "queries",
     change: "001",
     role: "implementer" as const,
+    kind: "initial" as const,
     startedAt: "2026-01-01T00:00:00.000Z",
     endedAt: "2026-01-01T00:00:01.000Z",
     selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },

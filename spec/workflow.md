@@ -103,8 +103,8 @@ post-landing replacement—uses the package-owned extension as its activation
 boundary. Before its first project prompt, activation requires the exact
 `<slug>-planner` Pi session name, establishes and verifies Herdr reports
 `<slug-with-hyphens-replaced>_planner`, and verifies
-`approve_stream_change`, `dispatch_stream_implementer`, and
-`next_stream_change` are active. Missing or incompatible activation, identity
+`approve_stream_change`, `dispatch_stream_implementer`, `rework_stream_implementer`,
+`finish_stream_implementer`, and `next_stream_change` are active. Missing or incompatible activation, identity
 mismatch, or an incomplete tool set stops visibly before `/change`. A direct
 restart may begin with Herdr's `pi` fallback identity; activation renames and
 rereads only that fallback. Any other identity mismatch stops. Implementers use
@@ -139,13 +139,22 @@ repeating a settled implementation.
 
 The planner inspects the full diff and relevant code, checks the approved
 acceptance criteria, and runs focused checks when the implementation output is
-insufficient. Remediation reuses the same implementer context. Once approved,
-the planner records the review result, exits the implementer so its pane returns
-to a shell, and follows the commit-and-land prompt without another approval
-round.
+insufficient. The planner-only `rework_stream_implementer` tool accepts that
+approved path and concise feedback, verifies the expected idle implementer, its
+right-hand pane and worktree, then invokes one package-owned Pi command. That command
+verifies the immutable startup stream/change scope, arms package reporting in the existing
+conversation, and submits one bounded feedback turn. It records
+and returns one `rework` attempt before queueing review again; missing or malformed
+reports warn and yield an incomplete attempt after settlement. Prompt rejection,
+timeout, blocked state, identity/worktree/change mismatch, or ambiguous pane stops
+without a completed attempt or queued review. The separate planner-only
+`finish_stream_implementer` tool first verifies that immutable stream/change scope in the
+same idle implementer, then gracefully exits it and waits for its pane to become the
+stream-worktree shell. Its failure
+stops before commit or landing instructions continue.
 
-Dispatch and remediation do not retry automatically. Remediation and implementer
-shutdown are still performed through prompt-owned Herdr commands.
+Dispatch, remediation, and shutdown do not retry automatically or replace an
+implementer session or its selected model.
 
 ## Commit and landing
 

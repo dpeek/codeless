@@ -3,6 +3,7 @@ export type Attempt = {
   stream: string;
   change: string;
   role: "implementer";
+  kind: "initial" | "rework";
   startedAt: string;
   endedAt: string;
   selection?: { provider: string; model: string; thinking: string };
@@ -23,6 +24,7 @@ export function validAttempt(value: unknown, stream: string, change: string): va
     "stream",
     "change",
     "role",
+    "kind",
     "startedAt",
     "endedAt",
     "selection",
@@ -34,7 +36,7 @@ export function validAttempt(value: unknown, stream: string, change: string): va
     "errorCount",
     "incomplete",
   ]);
-  const strings = ["id", "stream", "change", "role", "startedAt", "endedAt", "outcome"];
+  const strings = ["id", "stream", "change", "role", "kind", "startedAt", "endedAt", "outcome"];
   if (
     !Object.keys(attempt).every((key) => allowed.has(key)) ||
     !strings.every((key) => typeof attempt[key] === "string" && attempt[key].length > 0) ||
@@ -43,6 +45,7 @@ export function validAttempt(value: unknown, stream: string, change: string): va
     attempt["stream"] !== stream ||
     attempt["change"] !== change ||
     attempt["role"] !== "implementer" ||
+    !["initial", "rework"].includes(attempt["kind"] as string) ||
     !Number.isSafeInteger(attempt["toolCalls"]) ||
     (attempt["toolCalls"] as number) < 0 ||
     !Number.isSafeInteger(attempt["errorCount"]) ||

@@ -131,7 +131,13 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     },
     sessionManager: { getEntries: () => entries },
     getSystemPromptOptions: () => ({
-      selectedTools: ["approve_stream_change", "dispatch_stream_implementer", "next_stream_change"],
+      selectedTools: [
+        "approve_stream_change",
+        "dispatch_stream_implementer",
+        "rework_stream_implementer",
+        "finish_stream_implementer",
+        "next_stream_change",
+      ],
     }),
     modelRegistry: {
       find: (provider, id) =>
@@ -236,6 +242,7 @@ test("dispatch queues review only after a successful implementer run", async () 
     stream: "queries",
     change: "001",
     role: "implementer",
+    kind: "initial",
     startedAt: "2026-01-01T00:00:00.000Z",
     endedAt: "2026-01-01T00:00:01.000Z",
     outcome: "stop",
@@ -261,6 +268,7 @@ test("dispatch queues review only after a successful implementer run", async () 
     stream: "queries",
     change: "001",
     role: "implementer",
+    kind: "initial",
     startedAt: "2026-01-01T00:00:00.000Z",
     endedAt: "2026-01-01T00:00:01.000Z",
     selection: { provider: "", model: "gpt-5.6-terra", thinking: "medium" },
@@ -277,6 +285,45 @@ test("dispatch queues review only after a successful implementer run", async () 
   h.state.code = 1;
   await expectFailure(dispatch(), "Implemented.");
   expect(h.messages).toHaveLength(1);
+});
+
+test("rework queues review and finish stops on its backing command failure", async () => {
+  const h = harness();
+  h.state.stdout = JSON.stringify({
+    id: "attempt-2",
+    stream: "queries",
+    change: "001",
+    role: "implementer",
+    kind: "rework",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:00:01.000Z",
+    outcome: "stop",
+    selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },
+    text: "Fixed.",
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+    toolCalls: 0,
+    errorCount: 0,
+    incomplete: false,
+  });
+  await h.tools
+    .get("rework_stream_implementer")!
+    .execute("call", { changePath, feedback: "Add the missing test." }, signal);
+  expect(h.execCalls).toEqual([
+    [
+      "bun",
+      [executable, "rework", changePath, "Add the missing test."],
+      { signal, timeout: 3_700_000 },
+    ],
+  ]);
+  expect(h.messages).toEqual([
+    [`/review ${JSON.stringify(changePath)}`, { deliverAs: "steer", expandPromptTemplates: true }],
+  ]);
+  h.state.code = 1;
+  h.state.stderr = "implementer is not idle";
+  await expectFailure(
+    h.tools.get("finish_stream_implementer")!.execute("call", { changePath }, signal),
+    "not idle",
+  );
 });
 
 test("activation stops before the project prompt for a wrong Herdr identity or missing tools", async () => {

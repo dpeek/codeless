@@ -582,6 +582,7 @@ if (args[0] === "pane" && args[1] === "process-info") {
       stream: configuration.stream,
       change: configuration.change,
       role: "implementer",
+      kind: configuration.kind,
       startedAt: "2026-01-01T00:00:00.000Z",
       endedAt: "2026-01-01T00:00:01.000Z",
       selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },
@@ -611,6 +612,7 @@ console.log(JSON.stringify({ result }));
       stream: "queries",
       change: "001",
       role: "implementer",
+      kind: "initial",
       incomplete: false,
       text: "Implemented.",
       usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
@@ -683,6 +685,92 @@ console.log(JSON.stringify({ result }));
       "Missing project prompt",
     );
     expect(readFileSync(trace, "utf8")).toBe(loggedAfterCollectionFailure);
+  });
+
+  test("rework and finish use the verified implementer scope without recording failed turns", () => {
+    const f = fixture();
+    const approved = join(f.documents, "changes/001.md");
+    writeFileSync(approved, "# Approved change\n");
+    const mockBin = join(f.root, "implementer-control-bin");
+    const trace = join(f.root, "implementer-control.jsonl");
+    const state = join(f.root, "implementer-control-state");
+    mkdirSync(mockBin);
+    writeFileSync(
+      join(mockBin, "herdr"),
+      `#!/usr/bin/env bun
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(process.env.STREAMS_TEST_TRACE, JSON.stringify(args) + "\\n");
+const pane = args[args.indexOf("--pane") + 1];
+let result = {};
+if (args[0] === "pane" && args[1] === "process-info") {
+  const shell = pane === "implementer" && existsSync(process.env.STREAMS_TEST_STATE);
+  result = { process_info: { foreground_processes: [{ argv0: shell ? "zsh" : "pi", cwd: process.cwd() }] } };
+} else if (args[0] === "pane" && args[1] === "layout") {
+  result = { layout: { panes: [
+    { pane_id: "planner", rect: { x: 0, y: 0, width: 100, height: 100 } },
+    { pane_id: "implementer", rect: { x: 100, y: 0, width: 100, height: 100 } },
+  ] } };
+} else if (args[0] === "agent" && args[1] === "get") {
+  result = { agent: { name: process.env.STREAMS_TEST_AGENT ?? "queries_impl", agent_status: process.env.STREAMS_TEST_STATUS ?? "idle", foreground_cwd: process.cwd() } };
+} else if (args[0] === "agent" && args[1] === "prompt") {
+  if (process.env.STREAMS_TEST_PROMPT_FAIL) process.exit(1);
+  const request = args.find((value) => value.startsWith("/codeless-rework "));
+  if (request !== undefined) {
+    const config = JSON.parse(request.slice("/codeless-rework ".length));
+    writeFileSync(config.path, JSON.stringify({
+      id: config.id, stream: config.stream, change: config.change, role: "implementer", kind: "rework",
+      startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:00:01.000Z",
+      selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" }, outcome: "stop", text: "Fixed.",
+      usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 }, toolCalls: 0, errorCount: 0, incomplete: false,
+    }) + "\\n");
+  } else if (args.some((value) => value.startsWith("/codeless-finish "))) writeFileSync(process.env.STREAMS_TEST_STATE, "shell\\n");
+}
+console.log(JSON.stringify({ result }));
+`,
+    );
+    chmodSync(join(mockBin, "herdr"), 0o755);
+    const env = {
+      HERDR_ENV: "1",
+      HERDR_PANE_ID: "planner",
+      PATH: `${mockBin}:${environment.PATH}`,
+      STREAMS_TEST_TRACE: trace,
+      STREAMS_TEST_STATE: state,
+    };
+    mkdirSync(join(f.workspace, "metrics/queries"), { recursive: true });
+    const reworked = streams(f.stream, ["rework", approved, "Add a regression test."], {
+      ...env,
+      STREAMS_TEST_STATUS: "done",
+    });
+    expect(reworked.code).toBe(0);
+    expect(JSON.parse(reworked.stdout)).toMatchObject({ kind: "rework", text: "Fixed." });
+    const metric = JSON.parse(readFileSync(join(f.workspace, "metrics/queries/001.json"), "utf8"));
+    expect(Object.values(metric.attempts)).toHaveLength(1);
+    const calls = readFileSync(trace, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    const prompt = calls.find((call) => call[0] === "agent" && call[1] === "prompt");
+    expect(prompt).toBeDefined();
+    expect(prompt!).toContain("--timeout");
+    expect(prompt!).toContain("3600000");
+    expect(prompt!.filter((value) => value === "agent")).toHaveLength(1);
+
+    const failed = streams(f.stream, ["rework", approved, "Try again."], {
+      ...env,
+      STREAMS_TEST_PROMPT_FAIL: "1",
+    });
+    expect(failed.code).toBe(1);
+    expect(
+      Object.values(
+        JSON.parse(readFileSync(join(f.workspace, "metrics/queries/001.json"), "utf8")).attempts,
+      ),
+    ).toHaveLength(1);
+    expect(
+      streams(f.stream, ["finish", approved], { ...env, STREAMS_TEST_AGENT: "other_impl" }).code,
+    ).toBe(1);
+    expect(streams(f.stream, ["finish", approved], env).code).toBe(0);
+    expect(readFileSync(trace, "utf8")).toContain("/codeless-finish");
   });
 
   test("metrics aggregate streams and count elapsed coverage only for landed changes", () => {

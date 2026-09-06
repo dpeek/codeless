@@ -97,7 +97,7 @@ the runner does not generate or copy project instructions.
 The package-owned planner extension activates every planner session. Before its
 first project prompt, it requires the exact `<slug>-planner` Pi name, establishes
 and verifies the `<slug>_planner` Herdr identity, and confirms `approve_stream_change`,
-`dispatch_stream_implementer`, and `next_stream_change` are active. Missing or
+`dispatch_stream_implementer`, `rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change` are active. Missing or
 incompatible activation, identity mismatch, or inactive tools stops before
 `/change`; global Pi extension installation is unnecessary.
 The approval tool has no arguments. Its extension derives the active
@@ -182,6 +182,8 @@ codeless open <slug>
 codeless planner <slug>
 codeless approve <planner-session>
 codeless dispatch <numbered-change-file>
+codeless rework <numbered-change-file> <feedback>
+codeless finish <numbered-change-file>
 codeless land <slug>
 codeless next <numbered-change-file> <landed-commit>
 codeless metrics
@@ -199,9 +201,15 @@ starts Pi in an existing stream's lone shell after the same role preflight. Its
 activation establishes the same identity as creation and reopening.
 Dispatch validates the implementer selection before touching the planner's
 right-hand pane, starts a fresh ephemeral implementer with Codeless's reporting
-extension and its explicit Pi extension flag, and waits for completion. Its JSON
-result is a normalized attempt report, which the planner tool exposes before
-queueing review. It includes the actual settled model/thinking selection,
+extension and its explicit Pi extension flag, and waits for completion. Rework verifies
+that same change's idle implementer and worktree, invokes one package-owned Pi command
+that verifies its immutable stream/change scope, arms reporting, and submits one feedback
+turn with the same one-hour limit, records a `rework`
+attempt, and returns it before review is queued again. Finish verifies that identity,
+gracefully exits it, and waits for the right pane's stream-worktree shell. Neither operation
+replaces the agent, changes its selection, retries, or continues after a mismatch, timeout,
+blocked agent, or ambiguous pane. Its JSON result is a normalized attempt report, which the
+planner tool exposes before queueing review. It includes the actual settled model/thinking selection,
 terminal text and outcome, full-session Pi usage and available Pi cost estimate,
 timestamps, and tool/error counts; prompts, source, thinking, credentials, and
 transcripts are not retained.

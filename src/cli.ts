@@ -28,6 +28,8 @@ const usage = `Usage:
   codeless planner <slug>
   codeless approve <planner-session>
   codeless dispatch <numbered-change-file>
+  codeless rework <numbered-change-file> <feedback>
+  codeless finish <numbered-change-file>
   codeless land <slug>
   codeless next <numbered-change-file> <landed-commit>
   codeless metrics`;
@@ -386,9 +388,9 @@ export async function runCodeless(args: string[]): Promise<void> {
         return Number(rect["x"]) >= rightEdge && candidateTop < bottom && candidateBottom > top;
       })
       .sort((left, right) => Number(left["rect"]["x"]) - Number(right["rect"]["x"]));
-    return candidates.length === 0
-      ? undefined
-      : string(candidates[0]!.pane["pane_id"], "right-hand pane id");
+    if (candidates.length === 0) return undefined;
+    if (candidates.length > 1) throw new Error("Planner layout has an ambiguous right-hand pane");
+    return string(candidates[0]!.pane["pane_id"], "right-hand pane id");
   }
 
   function requirePaneShell(pane: string, worktree: string): void {
@@ -443,7 +445,8 @@ export async function runCodeless(args: string[]): Promise<void> {
     id: string,
     slug: string,
     number: string,
-    selection: { provider: string; model: string; thinking: string },
+    selection: { provider: string; model: string; thinking: string } | undefined,
+    kind: "initial" | "rework",
   ): Attempt {
     const timestamp = new Date().toISOString();
     return {
@@ -451,9 +454,10 @@ export async function runCodeless(args: string[]): Promise<void> {
       stream: slug,
       change: number,
       role: "implementer",
+      kind,
       startedAt: timestamp,
       endedAt: timestamp,
-      selection,
+      ...(selection === undefined ? {} : { selection }),
       outcome: "unknown",
       toolCalls: 0,
       errorCount: 0,
@@ -469,6 +473,7 @@ export async function runCodeless(args: string[]): Promise<void> {
       attempt.stream !== fallback.stream ||
       attempt.change !== fallback.change ||
       attempt.role !== "implementer" ||
+      attempt.kind !== fallback.kind ||
       typeof attempt.startedAt !== "string" ||
       typeof attempt.endedAt !== "string" ||
       typeof attempt.outcome !== "string" ||
@@ -708,7 +713,7 @@ export async function runCodeless(args: string[]): Promise<void> {
     const selection = readProject(worktree).implementer;
     const attemptId = crypto.randomUUID();
     const reportPath = join(workspaceRoot, "metrics", slug, `.attempt-${attemptId}.json`);
-    const fallbackAttempt = incompleteAttempt(attemptId, slug, number, selection);
+    const fallbackAttempt = incompleteAttempt(attemptId, slug, number, selection, "initial");
     observe("dispatch metrics", () => recordDispatch(workspaceRoot, slug, number));
     await validateRoleSelection("implementer", selection, worktree);
 
@@ -766,6 +771,7 @@ export async function runCodeless(args: string[]): Promise<void> {
       id: attemptId,
       stream: slug,
       change: number,
+      kind: "initial",
       path: reportPath,
     });
     const started = herdr([
@@ -820,6 +826,108 @@ export async function runCodeless(args: string[]): Promise<void> {
     }
     observe("implementer attempt", () => recordAttempt(workspaceRoot, slug, number, attempt));
     console.log(JSON.stringify(attempt));
+  }
+
+  function activeImplementer(changeArgument: string): {
+    change: string;
+    slug: string;
+    number: string;
+    worktree: string;
+    implementerName: string;
+    pane: string;
+  } {
+    if (process.env["HERDR_ENV"] !== "1")
+      throw new Error("Implementer control must run from a Herdr-managed planner");
+    const { change, slug, number, worktree, branch } = requireChange(changeArgument);
+    if (canonicalPath(process.cwd()) !== worktree)
+      throw new Error(`Implementer control cwd is ${process.cwd()}, expected ${worktree}`);
+    if (run("git", ["branch", "--show-current"], worktree).trim() !== branch)
+      throw new Error(`${worktree} is not on ${branch}`);
+    const plannerPane = string(process.env["HERDR_PANE_ID"], "HERDR_PANE_ID");
+    const plannerProcesses = foregroundProcesses(paneProcessInfo(plannerPane));
+    if (
+      !plannerProcesses.some(
+        (process) => canonicalPath(string(process["cwd"], "planner cwd")) === worktree,
+      )
+    )
+      throw new Error(`Planner pane ${plannerPane} is not running in ${worktree}`);
+    const layout = object(
+      result(herdr(["pane", "layout", "--pane", plannerPane]))["layout"],
+      "result.layout",
+    );
+    const pane = rightPane(layout, plannerPane);
+    if (pane === undefined) throw new Error("Planner has no right-hand implementer pane");
+    const implementerName = `${slug.replaceAll("-", "_")}_impl`;
+    const agent = object(result(herdr(["agent", "get", pane]))["agent"], "result.agent");
+    if (string(agent["name"], "result.agent.name") !== implementerName)
+      throw new Error(`Right-hand pane ${pane} is not implementer ${implementerName}`);
+    if (!["idle", "done"].includes(string(agent["agent_status"], "result.agent.agent_status")))
+      throw new Error(`Implementer ${implementerName} is not settled`);
+    const agentCwd = string(agent["foreground_cwd"] ?? agent["cwd"], "result.agent.foreground_cwd");
+    if (canonicalPath(agentCwd) !== worktree)
+      throw new Error(`Implementer ${implementerName} is in ${agentCwd}, expected ${worktree}`);
+    const processes = foregroundProcesses(paneProcessInfo(pane));
+    if (
+      !processes.some(
+        (process) => canonicalPath(string(process["cwd"], "implementer cwd")) === worktree,
+      )
+    )
+      throw new Error(`Implementer pane ${pane} is not running in ${worktree}`);
+    return { change, slug, number, worktree, implementerName, pane };
+  }
+
+  async function rework(changeArgument: string, feedback: string): Promise<void> {
+    if (feedback.trim().length === 0 || feedback.trim().length > 2_000)
+      throw new Error("Rework feedback must be concise non-empty text");
+    const { slug, number, implementerName } = activeImplementer(changeArgument);
+    const attemptId = crypto.randomUUID();
+    const reportPath = join(workspaceRoot, "metrics", slug, `.attempt-${attemptId}.json`);
+    const fallbackAttempt = incompleteAttempt(attemptId, slug, number, undefined, "rework");
+    const collection = JSON.stringify({
+      id: attemptId,
+      stream: slug,
+      change: number,
+      kind: "rework",
+      path: reportPath,
+      feedback: feedback.trim(),
+    });
+    run("herdr", [
+      "agent",
+      "prompt",
+      implementerName,
+      `/codeless-rework ${collection}`,
+      "--wait",
+      "--timeout",
+      "3600000",
+    ]);
+    let attempt = fallbackAttempt;
+    try {
+      attempt = collectedAttempt(JSON.parse(readFileSync(reportPath, "utf8")), fallbackAttempt);
+      if (attempt === fallbackAttempt) throw new Error("report did not match its rework attempt");
+    } catch (error) {
+      console.error(
+        `codeless: warning: could not collect implementer attempt: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      if (existsSync(reportPath)) unlinkSync(reportPath);
+    }
+    observe("implementer attempt", () => recordAttempt(workspaceRoot, slug, number, attempt));
+    console.log(JSON.stringify(attempt));
+  }
+
+  function finish(changeArgument: string): void {
+    const { slug, number, worktree, implementerName, pane } = activeImplementer(changeArgument);
+    run("herdr", [
+      "agent",
+      "prompt",
+      implementerName,
+      `/codeless-finish ${JSON.stringify({ stream: slug, change: number })}`,
+      "--wait",
+      "--timeout",
+      "30000",
+    ]);
+    requirePaneShell(pane, worktree);
+    console.log(JSON.stringify({ pane, worktree }));
   }
 
   async function launchPlanner(slug: string): Promise<void> {
@@ -995,6 +1103,16 @@ export async function runCodeless(args: string[]): Promise<void> {
   if (action === "dispatch") {
     if (target === undefined || details.length > 0) throw new Error(usage);
     await dispatch(target);
+    return;
+  }
+  if (action === "rework") {
+    if (target === undefined || details.length !== 1) throw new Error(usage);
+    await rework(target, details[0]!);
+    return;
+  }
+  if (action === "finish") {
+    if (target === undefined || details.length > 0) throw new Error(usage);
+    finish(target);
     return;
   }
   if (action === "next") {
