@@ -2,64 +2,174 @@
 
 ## Outcome
 
-Make the attended planner/implementer loop easier to operate and measure without
-turning Codeless into an unattended supervisor. Implemented behavior belongs in
-the [Codeless workflow contract](../spec/workflow.md); this document contains only
-missing behavior and conditional next directions.
+Make the attended planner/implementer loop easier to operate without adding a
+supervisor. Implemented behavior belongs in [the workflow contract](../spec/workflow.md).
+Everything below is proposed or missing behavior; command names are design
+recommendations until implemented.
 
-## Planner startup efficiency
+## Bootstrap reusable prompts
 
-Fresh planners currently reread every numbered change before deciding whether
-work is available. As histories grow, this spends context reconstructing facts
-already summarized by the journal and can encourage mining obsolete documents.
+Ship generic starter copies of the current four prompts in package-root
+`prompts/`: `change.md`, `implement.md`, `review.md`, and `commit.md`. Include that
+directory in the published package. Keep `.codeless/prompts/` as this repository's
+editable project configuration; installed copies belong to the consuming project.
 
-Narrow startup reads while preserving recovery:
+Extend `codeless init` to copy missing templates into the invoking checkout's
+configured prompt directory (`.codeless/prompts` in the standard configuration).
+Preserve existing files byte-for-byte, including on repeated or partial init.
+Validate destinations before writing and stop on invalid paths or non-file
+collisions. Report created and preserved files. Upgrading Codeless must not
+silently replace project prompts.
 
-- read repository guidance, `planner.md`, and the todo first;
-- stop early when the todo says all remaining work is gated and there is no new
-  operator direction;
-- read the latest numbered change when recovering active or ambiguous work;
-- read older changes only when the journal points to an unresolved decision;
-- inspect related specs and implementation after selecting an ungated candidate;
-  and
-- after a fast-forward, reread only documents or code affected by the new
-  commits.
+Derive the templates from the current Codeless set, removing consumer-specific
+assumptions, including any Formless domain language. Resolve the integration
+branch and prompt directory from project configuration; do not bake in `main`,
+`.codeless/prompts`, `bun ./bin/codeless`, Codeless's own checks, or a required
+`.codeless/README.md`. Use the installed `codeless` executable until tools own
+those transitions. Preserve the proposal headings, explicit `go` boundary,
+approval-before-dispatch, same-session remediation, and fresh planner handoff.
 
-Do not use deleted or historical documents to manufacture direction when the
-current todo and specs are clear.
+Init still requires configuration and an existing integration branch. Explain
+that copied prompts are local edits: the operator reviews and commits them,
+then brings that commit onto integration before creating streams. Do not dirty
+the dedicated integration checkout with generated prompt copies.
 
-## Landing recovery efficiency
+Verify first init, repeat init, partially populated/custom prompt directories,
+invalid destinations, package contents, and a non-`main` consuming project.
 
-The conflict-recovery prompt asks the planner to run checks after completing a
-rebase and then rerun `codeless land`, which runs the configured checks again.
-Let `land` own the post-rebase check unless a future design introduces a
-specific, verifiable check attestation. Retain focused checks while resolving a
-conflict when they help establish correctness.
+## Explicit operator synchronization
 
-## Choosing the next change
+Add one operator-only `sync` command with explicit direction. Resolve the
+integration branch from configuration; `dev` below names the operator branch:
 
-Startup and duplicate-check reductions are smaller independent changes.
+| Proposed command         | Effect                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `codeless sync from dev` | Fast-forward integration to the captured `dev` commit, then eligible managed streams to that integration commit |
+| `codeless sync to dev`   | Fast-forward the registered `dev` checkout to the captured integration commit                                   |
 
-Counts and token totals do not establish change quality or model superiority.
-Use them alongside review outcomes and the work delivered. Automatic model
-routing, budgets, dashboards, remote telemetry, unattended approval, queues,
-and background retries remain outside this direction.
+Accept an explicit local operator branch rather than adding a second required
+branch setting. Discover registered checkouts through Git; never switch branches,
+create missing checkouts, reset, stash, rebase, push, or make merge commits.
+This moves committed operator work and already-landed stream work. Unlanded
+stream commits must still pass through normal review and landing.
 
-## Dependencies and boundaries
+For `sync from`, validate the operator and integration checkouts, clean state,
+and ancestry before mutation. Acquire the existing shared landing slot with an
+unambiguous operator-sync owner, capture and recheck both heads under the lock,
+and fast-forward integration with `git merge --ff-only`. Refuse any existing
+landing/recovery lock; sync cannot resume or steal a stream's slot. Operator sync
+is explicit integration of operator-reviewed commits and does not pretend those
+commits completed the stream review/check lifecycle.
 
-- Keep reusable implementation, tests, and execution contracts in this project.
-  Model choices, approval policy, and prompts belong to each consuming project.
-- Pi and Herdr own their runtime APIs. Verify installed versions before relying
-  on new usage, identity, or completion behavior.
-- Consumer runtime diagnostics remain separate from Codeless's local workflow
-  metrics.
-- Preserve the approval boundary, single-change stream invariant, landing lock,
-  and deliberate recovery rules while improving the mechanics.
+Update only registered Codeless stream worktrees with no unresolved approved
+change, no worktree edits or Git operation in progress, and a head that can
+fast-forward to the captured integration commit. Require a quiescent planner and
+implementer before changing their checkout; clean files alone do not establish
+that agents are idle. Skip active, dirty, diverged, missing, or uncertain streams
+and report each reason. A planner with an existing proposal must reread changed
+direction/code and refresh the proposal before requesting approval.
 
-## Keeping this stream useful
+For `sync to`, require a clean operator checkout and a fast-forwardable head.
+Refuse unresolved integration recovery, capture a stable integration commit,
+and leave stream worktrees untouched. Report divergence so the operator can
+reconcile it deliberately; the shortcut cannot resolve independently advanced
+`dev` and integration histories with a fast-forward.
 
-For each completed change, update code, focused tests, the project guide, and
-[the implemented Codeless contract](../spec/workflow.md) together. Remove the
-satisfied intention from this file instead of retaining a current-state recap.
-Keep approvals, numbered changes, and execution history in the shared Codeless
-workspace rather than either repository document.
+Report each branch as updated, already current, skipped, or failed. Multiple
+worktree updates are not atomic: retain successful fast-forwards, never roll
+back, and show exactly what remains. Expected stream skips release the slot;
+unexpected failures after mutation retain ownership for deliberate inspection.
+Provide a read-only preview using the same eligibility checks. Verify both
+directions, custom integration names, busy/approved/dirty/diverged streams,
+existing locks, changed heads, and partial failure in self-contained Git tests.
+
+## Reduce the public command surface
+
+Keep operator commands for initialization, stream creation/reopening, direct
+planner restart, sync, metrics, and deliberate landing recovery. Keep `create`
+and `open` distinct: accidental reuse and accidental creation should still fail.
+Keep `planner` while restarting in an existing shell is a distinct recovery need.
+
+Move `approve`, `dispatch`, `rework`, `finish`, and `next` out of the public CLI
+into a package-private runner used by the extension. Preserve one implementation
+of each transition and its structured result. Remove the old public routes and
+help/documentation entries together; do not add compatibility aliases. An
+internal runner is a surface boundary, not a security boundary.
+
+Add planner-only `land_stream_change(changePath)` around the shared landing
+implementation. Derive the stream from its verified change and current planner,
+return the actual post-rebase commit hash, and make that result the input to
+journal recording and `next_stream_change`. Retain `codeless land <slug>` for
+operator recovery. A tool call does not itself certify review: establish the
+reviewed change association before landing and preserve the one-commit and lock
+checks. Keep commit contents/message and review judgment under project guidance.
+
+Keep `/change`, `/implement`, `/review`, and `/commit` as project templates.
+Retain package Pi commands where they provide activation, idle-boundary session
+replacement, reporting rearm, or graceful shutdown. They currently back tools;
+they are not redundant operator features. Use a consistent `codeless-` prefix
+for retained internal commands, updating registration, callers, preflight, and
+tests together. Inspect installed Pi/Herdr APIs before attempting to hide or
+replace these bridges; do not invent a command-visibility API.
+
+A later `prepare_stream_change` tool could own the clean-baseline fast-forward
+currently described in `/change`, returning changed files and recovery state.
+Keep proposal writing and human approval conversational. Do not add generic Git,
+file-editing, review, commit, or cross-stream sync tools without a concrete
+workflow invariant for them to own.
+
+## Enforce the active-change boundary
+
+Before broadening synchronization, give completion/active-change state one
+canonical workflow owner. Currently `approve` can allocate a different proposal
+while the preceding approval remains unimplemented, and `dispatch` accepts a
+numbered file without checking its recorded approval hash or latest-change status.
+A clean Git worktree does not resolve either ambiguity.
+
+Require approval to reconcile the current change before allocating another.
+Require dispatch to match the current approved file, its recorded hash, and the
+active planner/stream identity. Associate landing/completion with that exact
+change rather than inferring it solely from the greatest numbered filename.
+Keep recovery and repeated calls explicit and idempotent. Metrics must remain
+optional observations, never the source of approval or completion truth.
+
+Choose the smallest canonical completion record that supports both next-change
+validation and sync eligibility; keep narrative decisions in `planner.md`.
+Test a second proposal before completion, altered or unapproved input, stale
+numbered changes, mismatched identities, and interrupted transition recovery.
+
+## Prompt efficiency
+
+Narrow planner startup reads while preserving recovery:
+
+- Read repository guidance, `planner.md`, and the direction first.
+- Stop when remaining work is gated and there is no new operator direction.
+- Read the latest numbered change when recovering active or ambiguous work.
+- Read older changes only when the journal points to an unresolved decision.
+- Inspect relevant specs and implementation after choosing an ungated candidate.
+- After a fast-forward, reread documents and code affected by the new commits.
+
+Do not mine deleted or historical documents for work when current direction is
+clear. Apply these improvements to both project prompts and shipped starters.
+
+Let `land` own the configured post-rebase check. The conflict-recovery prompt
+currently asks for checks before rerunning `land`, which runs them again. Keep
+focused checks useful during conflict resolution, but remove the unconditional
+duplicate suite. Do not introduce check attestations just to avoid this repeat.
+
+## Delivery order and boundaries
+
+Prompt bootstrapping and prompt efficiency can ship independently. Next close
+the active-change/completion gap, then add sync using that same state owner.
+The landing tool and public-surface reduction form separate bounded changes;
+neither requires a general orchestration framework.
+
+For each implementation, update code, focused tests, README, and the implemented
+contract together; remove satisfied intentions from this file. Keep approvals,
+numbered changes, and execution history in the shared local workspace.
+
+Preserve attended approval, one active change per stream, the landing lock,
+and deliberate recovery. Automatic model routing, budgets, dashboards, remote
+telemetry, unattended approval, queues, and background retries remain outside
+this direction. Usage and cost totals alone do not establish quality or model
+superiority.
