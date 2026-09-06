@@ -7,13 +7,6 @@ turning Codeless into an unattended supervisor. Implemented behavior belongs in
 the [Codeless workflow contract](../spec/workflow.md); this document contains only
 missing behavior and conditional next directions.
 
-## Remaining metrics
-
-Structured implementer attempts now provide the local boundary for later
-aggregation. Add review-rework and failure-category reporting without changing
-the approval boundary or turning metrics into journal or recovery state. Planning
-usage before a numbered change exists may remain attributed to the stream.
-
 ## Planner startup efficiency
 
 Fresh planners currently reread every numbered change before deciding whether
@@ -45,10 +38,7 @@ conflict when they help establish correctness.
 
 ## Choosing the next change
 
-Fix planner identity and activation first. Then make dispatch return a structured
-attempt report before extending aggregate usage, rework, and failure metrics. Add
-remediation after that result boundary exists. Startup and duplicate-check
-reductions are smaller independent changes.
+Startup and duplicate-check reductions are smaller independent changes.
 
 Counts and token totals do not establish change quality or model superiority.
 Use them alongside review outcomes and the work delivered. Automatic model

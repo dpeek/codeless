@@ -203,16 +203,21 @@ unchanged. Successful landing adds its timestamp and commit, or creates a landed
 record with unavailable elapsed time when dispatch collection was unavailable.
 Collection warnings do not change dispatch or landing outcomes.
 
-`codeless metrics` reports every recorded stream and a project total with:
+`codeless metrics` reports every recorded stream and a project total in two
+tables. The elapsed table reports landed and dispatched-but-unlanded change
+counts, measured versus unavailable elapsed coverage, and total and average
+dispatch-to-land wall-clock time. The attempt table aggregates only validated
+canonical attempt records and reports distinct changes with rework, initial and
+rework turns, incomplete collection, exact stored terminal-outcome labels, and
+summed tool errors.
 
-- landed and dispatched-but-unlanded change counts;
-- measured versus unavailable elapsed coverage; and
-- total and average dispatch-to-land wall-clock time.
-
-The measurements are prospective, local observations. They are not journal
-state, an approval source, or a recovery mechanism. Attempt usage and cost are
-stored for later aggregation; `codeless metrics`, review rework, and failure
-breakdowns do not yet report them.
+Usage coverage is measured versus unavailable attempts; input, output,
+cache-read, and cache-write totals include only attempts with recorded usage.
+Cost coverage follows the same rule, and totals are grouped by recorded currency
+without conversion. Missing usage or cost is unavailable, never zero. These
+measurements do not establish implementation quality or review success. They
+are prospective local observations, not journal state, an approval source, or a
+recovery mechanism.
 
 ## Limits
 

@@ -201,12 +201,98 @@ export function metricReport(workspaceRoot: string): string[] {
     return `${name}\t${value.landed}\t${value.unlanded}\t${value.coverage}\t${value.total}\t${value.average}`;
   };
   const rows = [...byStream.entries()].map(([stream, records]) => ({ stream, records }));
+  const allRecords = rows.flatMap(({ records }) => records);
+  const formatCost = (amounts: number[]) => {
+    const parts = amounts.map((amount) => {
+      const [coefficient, exponent = "0"] = String(amount).toLowerCase().split("e");
+      const [whole, fraction = ""] = coefficient!.split(".");
+      return { digits: BigInt(`${whole}${fraction}`), scale: fraction.length - Number(exponent) };
+    });
+    const scale = Math.max(0, ...parts.map((part) => part.scale));
+    const total = parts.reduce(
+      (sum, part) => sum + part.digits * 10n ** BigInt(scale - part.scale),
+      0n,
+    );
+    const digits = total.toString().padStart(scale + 1, "0");
+    if (scale === 0) return digits;
+    const fraction = digits.slice(-scale).replace(/0+$/, "");
+    return fraction.length === 0
+      ? digits.slice(0, -scale)
+      : `${digits.slice(0, -scale)}.${fraction}`;
+  };
+  const attemptSummary = (records: Metric[]) => {
+    const attempts = records.flatMap((record) => Object.values(record.attempts ?? {}));
+    const usage = attempts.filter((attempt) => attempt.usage !== undefined);
+    const costs = attempts.filter((attempt) => attempt.cost !== undefined);
+    const outcomes = new Map<string, number>();
+    const currencies = new Map<string, number[]>();
+    for (const attempt of attempts) {
+      outcomes.set(attempt.outcome, (outcomes.get(attempt.outcome) ?? 0) + 1);
+      if (attempt.cost !== undefined)
+        currencies.set(attempt.cost.currency, [
+          ...(currencies.get(attempt.cost.currency) ?? []),
+          attempt.cost.amount,
+        ]);
+    }
+    const coverage = (measured: number) =>
+      `${measured} measured, ${attempts.length - measured} unavailable`;
+    return {
+      reworkedChanges: new Set(
+        records
+          .filter((record) =>
+            Object.values(record.attempts ?? {}).some((attempt) => attempt.kind === "rework"),
+          )
+          .map((record) => `${record.stream}\0${record.change}`),
+      ).size,
+      initial: attempts.filter((attempt) => attempt.kind === "initial").length,
+      rework: attempts.filter((attempt) => attempt.kind === "rework").length,
+      incomplete: attempts.filter((attempt) => attempt.incomplete).length,
+      outcomes:
+        outcomes.size === 0
+          ? "none"
+          : [...outcomes.entries()]
+              .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+              .map(([outcome, count]) => `${outcome}: ${count}`)
+              .join(", "),
+      toolErrors: attempts.reduce((total, attempt) => total + attempt.errorCount, 0),
+      usageCoverage: coverage(usage.length),
+      input:
+        usage.length === 0
+          ? "unavailable"
+          : usage.reduce((total, attempt) => total + attempt.usage!.input, 0),
+      output:
+        usage.length === 0
+          ? "unavailable"
+          : usage.reduce((total, attempt) => total + attempt.usage!.output, 0),
+      cacheRead:
+        usage.length === 0
+          ? "unavailable"
+          : usage.reduce((total, attempt) => total + attempt.usage!.cacheRead, 0),
+      cacheWrite:
+        usage.length === 0
+          ? "unavailable"
+          : usage.reduce((total, attempt) => total + attempt.usage!.cacheWrite, 0),
+      costCoverage: coverage(costs.length),
+      costs:
+        currencies.size === 0
+          ? "unavailable"
+          : [...currencies.entries()]
+              .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+              .map(([currency, amounts]) => `${currency} ${formatCost(amounts)}`)
+              .join(", "),
+    };
+  };
+  const attemptRow = (name: string, records: Metric[]) => {
+    const value = attemptSummary(records);
+    return `${name}\t${value.reworkedChanges}\t${value.initial}\t${value.rework}\t${value.incomplete}\t${value.outcomes}\t${value.toolErrors}\t${value.usageCoverage}\t${value.input}\t${value.output}\t${value.cacheRead}\t${value.cacheWrite}\t${value.costCoverage}\t${value.costs}`;
+  };
   return [
     "Stream\tLanded\tNot landed\tElapsed coverage\tDispatch-to-land wall clock total\tAverage",
     ...rows.map(({ stream, records }) => row(stream, records)),
-    row(
-      "Project total",
-      rows.flatMap(({ records }) => records),
-    ),
+    row("Project total", allRecords),
+    "",
+    "Stream\tChanges with rework\tInitial attempts\tRework attempts\tIncomplete collection\tTerminal outcomes\tTool errors\tUsage coverage\tInput tokens\tOutput tokens\tCache-read tokens\tCache-write tokens\tCost coverage\tCost totals",
+    ...rows.map(({ stream, records }) => attemptRow(stream, records)),
+    attemptRow("Project total", allRecords),
   ];
 }

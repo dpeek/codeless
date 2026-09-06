@@ -785,6 +785,38 @@ console.log(JSON.stringify({ result }));
         dispatchedAt: "2026-03-01T10:00:00.000Z",
         landedAt: "2026-03-01T10:02:30.000Z",
         landedCommit: "a".repeat(40),
+        attempts: {
+          initial: {
+            id: "initial",
+            stream: "queries",
+            change: "001",
+            role: "implementer",
+            kind: "initial",
+            startedAt: "2026-03-01T10:00:00.000Z",
+            endedAt: "2026-03-01T10:01:00.000Z",
+            selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },
+            outcome: "stop",
+            text: "Implemented.",
+            usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+            cost: { amount: 0.5, currency: "USD", source: "pi" },
+            toolCalls: 0,
+            errorCount: 1,
+            incomplete: false,
+          },
+          rework: {
+            id: "rework",
+            stream: "queries",
+            change: "001",
+            role: "implementer",
+            kind: "rework",
+            startedAt: "2026-03-01T10:01:00.000Z",
+            endedAt: "2026-03-01T10:02:00.000Z",
+            outcome: "error",
+            toolCalls: 0,
+            errorCount: 2,
+            incomplete: true,
+          },
+        },
       }),
     );
     writeFileSync(
@@ -814,6 +846,12 @@ console.log(JSON.stringify({ result }));
     );
     expect(result.stdout).toContain(
       "Project total\t2\t1\t1 measured, 1 unavailable\t2m 30s\t2m 30s",
+    );
+    expect(result.stdout).toContain(
+      "queries\t1\t1\t1\t1\terror: 1, stop: 1\t3\t1 measured, 1 unavailable\t1\t2\t3\t4\t1 measured, 1 unavailable\tUSD 0.5",
+    );
+    expect(result.stdout).toContain(
+      "Project total\t1\t1\t1\t1\terror: 1, stop: 1\t3\t1 measured, 1 unavailable\t1\t2\t3\t4\t1 measured, 1 unavailable\tUSD 0.5",
     );
   });
 

@@ -224,11 +224,17 @@ integration fast-forward, Codeless records the landed time and commit on that
 change's canonical record, creating a landed record without elapsed time when
 dispatch collection was unavailable; collection warnings never alter dispatch or
 landing.
-`codeless metrics` prints every recorded stream and a project total. Its elapsed
-columns are dispatch-to-land wall-clock time; among landed changes, records
+`codeless metrics` prints every recorded stream and a project total. Its first
+table reports dispatch-to-land wall-clock time; among landed changes, records
 without a measured duration are explicitly unavailable. Dispatched-but-unlanded
-changes remain a separate count. Metrics are prospective local observations, not
-journal state or a recovery mechanism.
+changes remain a separate count. Its second table reports implementer attempts:
+distinct changes with rework, initial and rework turns, incomplete collection,
+exact stored terminal outcomes, and tool errors. Usage and cost coverage count
+measured attempts separately from unavailable collection; token totals include
+only measured usage, and cost totals remain grouped by recorded currency without
+conversion. These counts do not establish implementation quality or review
+success. Metrics are prospective local observations, not journal state or a
+recovery mechanism.
 
 Landing requires clean stream and integration worktrees and exactly one stream
 commit outside their merge base. It acquires `.land-lock` atomically, recording
