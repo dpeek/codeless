@@ -154,7 +154,7 @@ planners or worktree shells are running.
   worktree/<slug>/    # stream/<slug> branch
   worktree/main/      # example integration checkout location
   .land-lock/         # shared landing owner and recorded integration commit
-  metrics/<slug>/NNN.json # first dispatch, landing time, and landed commit
+  metrics/<slug>/NNN.json # dispatch/landing times and deduplicated implementer attempts
 ```
 
 Run `codeless init` once after configuring a project. It creates the shared state
@@ -198,14 +198,24 @@ install command, then validate and open a planner beside an idle shell. `planner
 starts Pi in an existing stream's lone shell after the same role preflight. Its
 activation establishes the same identity as creation and reopening.
 Dispatch validates the implementer selection before touching the planner's
-right-hand pane, starts a fresh ephemeral implementer, and waits for completion.
+right-hand pane, starts a fresh ephemeral implementer with Codeless's reporting
+extension and its explicit Pi extension flag, and waits for completion. Its JSON
+result is a normalized attempt report, which the planner tool exposes before
+queueing review. It includes the actual settled model/thinking selection,
+terminal text and outcome, full-session Pi usage and available Pi cost estimate,
+timestamps, and tool/error counts; prompts, source, thinking, credentials, and
+transcripts are not retained.
 
 The first valid dispatch creates one atomic local JSON metric record for its
-stream and numbered change. Retries preserve its original dispatch time. After a
-successful integration fast-forward, Codeless records the landed time and commit
-on that change's canonical record, creating a landed record without elapsed time
-when dispatch collection was unavailable; collection warnings never alter
-dispatch or landing.
+stream and numbered change. Each accepted run receives a new attempt ID and is
+added idempotently under that record; re-ingesting an ID preserves the original
+attempt and retries preserve the original dispatch time. Missing, malformed, or
+unwritable collection data warns and stores an incomplete attempt when possible
+without retrying or failing a settled implementation. After a successful
+integration fast-forward, Codeless records the landed time and commit on that
+change's canonical record, creating a landed record without elapsed time when
+dispatch collection was unavailable; collection warnings never alter dispatch or
+landing.
 `codeless metrics` prints every recorded stream and a project total. Its elapsed
 columns are dispatch-to-land wall-clock time; among landed changes, records
 without a measured duration are explicitly unavailable. Dispatched-but-unlanded

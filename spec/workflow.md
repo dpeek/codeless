@@ -120,7 +120,23 @@ right-hand Herdr pane only when that pane is an available shell or the expected
 idle implementer, starts a fresh ephemeral Pi implementer in the stream
 worktree, submits `/implement`, and waits for at most one hour.
 
-Successful dispatch queues the expanded `/review` prompt back into the planner.
+Successful dispatch loads the package-owned reporting extension while retaining
+`--no-session` and passes its report configuration through that extension's
+explicit Pi string flag, then returns one normalized attempt to the planner tool
+before it queues the expanded `/review` prompt. Attempts have a stable ID and
+capture only stream/change/role, start and settlement timestamps, Pi's actual
+settled provider/model/thinking selection, terminal outcome and final text,
+full-session Pi input/output/cache usage (including tool results, compaction,
+and branch summaries), available Pi model cost estimate with USD currency and
+source, and tool/error counts. Cost is omitted when Pi did not supply valid
+cost totals. They do not retain prompts, source, credentials, thinking, or a
+transcript. The extension writes its narrow report atomically once, then
+remains disarmed for remediation; Codeless atomically deduplicates it inside the
+per-change metric record, rejecting a
+conflicting duplicate ID. Missing, malformed, or unwritable collection warns
+and yields an explicitly incomplete attempt when possible without failing or
+repeating a settled implementation.
+
 The planner inspects the full diff and relevant code, checks the approved
 acceptance criteria, and runs focused checks when the implementation output is
 insufficient. Remediation reuses the same implementer context. Once approved,
@@ -128,10 +144,8 @@ the planner records the review result, exits the implementer so its pane returns
 to a shell, and follows the commit-and-land prompt without another approval
 round.
 
-Dispatch and remediation do not retry automatically. Dispatch currently exposes
-Herdr command output rather than a normalized implementation result, and
-remediation and implementer shutdown are still performed through prompt-owned
-Herdr commands.
+Dispatch and remediation do not retry automatically. Remediation and implementer
+shutdown are still performed through prompt-owned Herdr commands.
 
 ## Commit and landing
 
@@ -174,10 +188,11 @@ before another implementation.
 ## Local workflow metrics
 
 The first dispatch for a stream and numbered change creates one atomic local
-metric record. Retrying dispatch preserves the original timestamp. Successful
-landing adds its timestamp and commit, or creates a landed record with
-unavailable elapsed time when dispatch collection was unavailable. Collection
-warnings do not change dispatch or landing outcomes.
+metric record. Every accepted dispatch creates a new attempt ID; re-ingesting an
+attempt ID is atomic and idempotent, while the original dispatch timestamp stays
+unchanged. Successful landing adds its timestamp and commit, or creates a landed
+record with unavailable elapsed time when dispatch collection was unavailable.
+Collection warnings do not change dispatch or landing outcomes.
 
 `codeless metrics` reports every recorded stream and a project total with:
 
@@ -186,9 +201,9 @@ warnings do not change dispatch or landing outcomes.
 - total and average dispatch-to-land wall-clock time.
 
 The measurements are prospective, local observations. They are not journal
-state, an approval source, or a recovery mechanism. Token usage, cost,
-normalized attempt results, review rework, and failure breakdowns are not yet
-collected.
+state, an approval source, or a recovery mechanism. Attempt usage and cost are
+stored for later aggregation; `codeless metrics`, review rework, and failure
+breakdowns do not yet report them.
 
 ## Limits
 

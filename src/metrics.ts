@@ -5,10 +5,13 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+
+import { type Attempt, validAttempt } from "./attempt.ts";
 
 export type Metric = {
   stream: string;
@@ -16,6 +19,7 @@ export type Metric = {
   dispatchedAt?: string;
   landedAt?: string;
   landedCommit?: string;
+  attempts?: Record<string, Attempt>;
 };
 
 function metricPath(workspaceRoot: string, stream: string, change: string): string {
@@ -32,7 +36,16 @@ function readMetric(path: string): Metric {
     typeof metric["change"] !== "string" ||
     (metric["dispatchedAt"] !== undefined && typeof metric["dispatchedAt"] !== "string") ||
     (metric["landedAt"] !== undefined && typeof metric["landedAt"] !== "string") ||
-    (metric["landedCommit"] !== undefined && typeof metric["landedCommit"] !== "string")
+    (metric["landedCommit"] !== undefined && typeof metric["landedCommit"] !== "string") ||
+    (metric["attempts"] !== undefined &&
+      (typeof metric["attempts"] !== "object" ||
+        metric["attempts"] === null ||
+        Array.isArray(metric["attempts"]) ||
+        !Object.entries(metric["attempts"] as Record<string, unknown>).every(
+          ([id, attempt]) =>
+            validAttempt(attempt, metric["stream"] as string, metric["change"] as string) &&
+            attempt.id === id,
+        )))
   )
     throw new Error(`${path} is not a metric record`);
   return metric as Metric;
@@ -71,6 +84,50 @@ export function recordDispatch(workspaceRoot: string, stream: string, change: st
     unlinkSync(temporary);
   }
   readMetric(path);
+}
+
+function withMetricLock(path: string, action: () => void): void {
+  const lock = `${path}.lock`;
+  mkdirSync(dirname(path), { recursive: true });
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      mkdirSync(lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      Bun.sleepSync(10);
+      continue;
+    }
+    try {
+      action();
+    } finally {
+      rmdirSync(lock);
+    }
+    return;
+  }
+  throw new Error(`could not acquire metric lock ${lock}`);
+}
+
+export function recordAttempt(
+  workspaceRoot: string,
+  stream: string,
+  change: string,
+  attempt: Attempt,
+): void {
+  if (!validAttempt(attempt, stream, change))
+    throw new Error("attempt is not a valid metric attempt");
+  const path = metricPath(workspaceRoot, stream, change);
+  withMetricLock(path, () => {
+    const metric = existsSync(path) ? readMetric(path) : { stream, change };
+    if (metric.stream !== stream || metric.change !== change)
+      throw new Error(`${path} does not match ${stream} change ${change}`);
+    const existing = metric.attempts?.[attempt.id];
+    if (existing !== undefined) {
+      if (JSON.stringify(existing) !== JSON.stringify(attempt))
+        throw new Error(`attempt ${attempt.id} conflicts with its existing metric record`);
+      return;
+    }
+    writeMetric(path, { ...metric, attempts: { ...metric.attempts, [attempt.id]: attempt } });
+  });
 }
 
 export function recordLanding(

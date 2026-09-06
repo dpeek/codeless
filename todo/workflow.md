@@ -7,35 +7,12 @@ turning Codeless into an unattended supervisor. Implemented behavior belongs in
 the [Codeless workflow contract](../spec/workflow.md); this document contains only
 missing behavior and conditional next directions.
 
-## Structured attempt reports and remaining metrics
+## Remaining metrics
 
-The current local metrics cover landed-change counts and dispatch-to-land wall
-clock. Dispatch still runs the implementer with `--no-session` and returns
-Herdr's command output rather than a stable implementation report, so the
-planner cannot reliably see the implementer's final summary or attribute effort
-and failures.
-
-Record one structured attempt result with stable retry deduplication and expose
-it to the planner after dispatch. Include only the fields needed to answer the
-workflow questions:
-
-| Measure               | Required boundary                                                                                                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Role usage            | Report input, output, and cache counters using Pi's own semantics, attributed to stream, change, role, attempt, and the actual model/thinking selection. |
-| Cost                  | Preserve a runtime-supplied estimate, currency, and source; never invent prices or present unavailable cost as zero.                                     |
-| Implementation result | Preserve timestamps, final implementer report, outcome, and tool-call/error counts without copying prompts, source, credentials, or a full transcript.   |
-| Review rework         | Count each request for another implementation pass, not every review message or tool call.                                                               |
-| Failed attempts       | Distinguish implementation failure, failed landing checks, rebase conflict, and failed session handoff. Waiting for approval is not failure.             |
-
-Planning usage before a numbered change exists may remain attributed to the
-stream rather than an unrelated change. Failed and abandoned attempts must stay
-visible. Collection failure should warn and mark data incomplete without
-undoing a successful dispatch or landing or causing an agent run to repeat.
-
-Keep records in the shared local Codeless workspace. Journals remain the owner of
-decisions and execution history; metrics are not another approval or recovery
-state machine. Inspect the installed Pi lifecycle and usage APIs before choosing
-collection points because saved transcripts do not cover ephemeral implementers.
+Structured implementer attempts now provide the local boundary for later
+aggregation. Add review-rework and failure-category reporting without changing
+the approval boundary or turning metrics into journal or recovery state. Planning
+usage before a numbered change exists may remain attributed to the stream.
 
 ## Tool-owned remediation
 

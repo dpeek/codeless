@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { validAttempt } from "../src/attempt.ts";
 
 const codeless = fileURLToPath(new URL("../bin/codeless", import.meta.url));
 const thinkingLevels = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -322,13 +323,22 @@ export default function plannerExtension(pi) {
         if (execution.code !== 0) {
           throw new Error(output || `codeless dispatch failed with exit code ${execution.code}`);
         }
+        let attempt;
+        try {
+          attempt = JSON.parse(execution.stdout);
+        } catch {
+          throw new Error("Codeless returned an invalid implementer attempt");
+        }
+        if (!validAttempt(attempt, attempt?.stream, attempt?.change)) {
+          throw new Error("Codeless returned an invalid implementer attempt");
+        }
         pi.sendUserMessage(`/review ${JSON.stringify(changePath)}`, {
           deliverAs: "steer",
           expandPromptTemplates: true,
         });
         return {
-          content: [{ type: "text", text: output || "Implementer settled." }],
-          details: { changePath },
+          content: [{ type: "text", text: attempt.text || "Implementer settled." }],
+          details: { changePath, attempt },
         };
       },
     });

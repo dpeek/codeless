@@ -560,7 +560,7 @@ console.log(JSON.stringify({ result }));
     writeFileSync(
       join(mockBin, "herdr"),
       `#!/usr/bin/env bun
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.STREAMS_TEST_TRACE, JSON.stringify(args) + "\\n");
 let result = {};
@@ -572,6 +572,28 @@ if (args[0] === "pane" && args[1] === "process-info") {
   result = { pane: { pane_id: "implementer" } };
 } else if (args[0] === "agent" && args[1] === "start") {
   result = { agent: { foreground_cwd: process.cwd() } };
+} else if (args[0] === "agent" && args[1] === "prompt") {
+  const calls = readFileSync(process.env.STREAMS_TEST_TRACE, "utf8").trim().split("\\n").map(JSON.parse);
+  const start = calls.find((call) => call[0] === "agent" && call[1] === "start");
+  const configuration = JSON.parse(start[start.indexOf("--codeless-attempt") + 1]);
+  try {
+    writeFileSync(configuration.path, JSON.stringify({
+      id: configuration.id,
+      stream: configuration.stream,
+      change: configuration.change,
+      role: "implementer",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:01.000Z",
+      selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },
+      outcome: "stop",
+      text: "Implemented.",
+      usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      toolCalls: 1,
+      errorCount: 0,
+      incomplete: false,
+      ...(process.env.STREAMS_TEST_MALFORMED_REPORT ? { prompt: "must not persist" } : {}),
+    }) + "\\n");
+  } catch {}
 }
 console.log(JSON.stringify({ result }));
 `,
@@ -585,15 +607,23 @@ console.log(JSON.stringify({ result }));
     };
     const dispatched = streams(f.stream, ["dispatch", approved], env);
     expect(dispatched.code).toBe(0);
-    expect(dispatched.stdout).toContain(
-      "Implementer: openai-codex/gpt-5.6-terra (thinking: medium)",
-    );
+    expect(JSON.parse(dispatched.stdout)).toMatchObject({
+      stream: "queries",
+      change: "001",
+      role: "implementer",
+      incomplete: false,
+      text: "Implemented.",
+      usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },
+    });
     const metricPath = join(f.workspace, "metrics/queries/001.json");
     const metric = JSON.parse(readFileSync(metricPath, "utf8"));
     expect(metric).toMatchObject({ stream: "queries", change: "001" });
     expect(typeof metric.dispatchedAt).toBe("string");
     expect(streams(f.stream, ["dispatch", approved], env).code).toBe(0);
-    expect(JSON.parse(readFileSync(metricPath, "utf8"))).toEqual(metric);
+    const retriedMetric = JSON.parse(readFileSync(metricPath, "utf8"));
+    expect(retriedMetric.dispatchedAt).toBe(metric.dispatchedAt);
+    expect(Object.keys(retriedMetric.attempts)).toHaveLength(2);
     const logged = readFileSync(trace, "utf8");
     const calls = logged
       .trim()
@@ -601,6 +631,11 @@ console.log(JSON.stringify({ result }));
       .map((line) => JSON.parse(line) as string[]);
     const start = calls.find((args) => args[0] === "agent" && args[1] === "start")!;
     expect(start).toContain(join(f.stream, "instructions"));
+    expect(JSON.parse(start[start.indexOf("--codeless-attempt") + 1]!)).toMatchObject({
+      stream: "queries",
+      change: "001",
+      path: expect.stringContaining(".attempt-"),
+    });
     expect(start.slice(start.indexOf("--model"), start.indexOf("--model") + 4)).toEqual([
       "--model",
       "openai-codex/gpt-5.6-terra",
@@ -624,7 +659,15 @@ console.log(JSON.stringify({ result }));
       "Implementer requested openai-codex/gpt-5.6-terra at thinking level medium",
     );
     expect(readFileSync(trace, "utf8")).toBe(logged);
-    expect(JSON.parse(readFileSync(metricPath, "utf8"))).toEqual(metric);
+    expect(JSON.parse(readFileSync(metricPath, "utf8"))).toEqual(retriedMetric);
+
+    const malformedReport = streams(f.stream, ["dispatch", approved], {
+      ...env,
+      STREAMS_TEST_MALFORMED_REPORT: "1",
+    });
+    expect(malformedReport.code).toBe(0);
+    expect(malformedReport.stderr).toContain("could not collect implementer attempt");
+    expect(JSON.parse(malformedReport.stdout)).toMatchObject({ incomplete: true });
 
     rmSync(join(f.workspace, "metrics/queries"), { recursive: true });
     writeFileSync(join(f.workspace, "metrics/queries"), "not a directory\n");

@@ -16,7 +16,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-import { metricReport, recordDispatch, recordLanding } from "./metrics.ts";
+import { metricReport, recordAttempt, recordDispatch, recordLanding } from "./metrics.ts";
+import { type Attempt, validAttempt } from "./attempt.ts";
 import { roleSelectionArguments, roleSelectionSummary, validateRoleSelection } from "./pi.ts";
 import { readProject } from "./project.ts";
 
@@ -42,6 +43,10 @@ export async function runCodeless(args: string[]): Promise<void> {
   const { integrationBranch } = project;
   run("git", ["check-ref-format", "--branch", integrationBranch], repository);
   const plannerExtension = resolve(import.meta.dir, "../extension/planner.js");
+  const implementerReportingExtension = resolve(
+    import.meta.dir,
+    "../extension/implementer-reporting.js",
+  );
   const configuredWorkspace = Bun.spawnSync(
     ["git", "config", "--local", "--get", "codeless.workspaceRoot"],
     { cwd: repository },
@@ -434,6 +439,48 @@ export async function runCodeless(args: string[]): Promise<void> {
     }
   }
 
+  function incompleteAttempt(
+    id: string,
+    slug: string,
+    number: string,
+    selection: { provider: string; model: string; thinking: string },
+  ): Attempt {
+    const timestamp = new Date().toISOString();
+    return {
+      id,
+      stream: slug,
+      change: number,
+      role: "implementer",
+      startedAt: timestamp,
+      endedAt: timestamp,
+      selection,
+      outcome: "unknown",
+      toolCalls: 0,
+      errorCount: 0,
+      incomplete: true,
+    };
+  }
+
+  function collectedAttempt(value: unknown, fallback: Attempt): Attempt {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return fallback;
+    const attempt = value as Partial<Attempt>;
+    if (
+      attempt.id !== fallback.id ||
+      attempt.stream !== fallback.stream ||
+      attempt.change !== fallback.change ||
+      attempt.role !== "implementer" ||
+      typeof attempt.startedAt !== "string" ||
+      typeof attempt.endedAt !== "string" ||
+      typeof attempt.outcome !== "string" ||
+      typeof attempt.toolCalls !== "number" ||
+      typeof attempt.errorCount !== "number" ||
+      attempt.incomplete !== false ||
+      !validAttempt(attempt, fallback.stream, fallback.change)
+    )
+      return fallback;
+    return attempt;
+  }
+
   function latestChangeNumber(slug: string): string {
     const change = readdirSync(join(workspaceRoot, "stream", slug, "changes"))
       .filter((file) => /^\d{3}\.md$/.test(file))
@@ -659,9 +706,11 @@ export async function runCodeless(args: string[]): Promise<void> {
     requireClean(worktree, branch);
     const prompts = promptDirectory(worktree);
     const selection = readProject(worktree).implementer;
+    const attemptId = crypto.randomUUID();
+    const reportPath = join(workspaceRoot, "metrics", slug, `.attempt-${attemptId}.json`);
+    const fallbackAttempt = incompleteAttempt(attemptId, slug, number, selection);
     observe("dispatch metrics", () => recordDispatch(workspaceRoot, slug, number));
     await validateRoleSelection("implementer", selection, worktree);
-    console.log(roleSelectionSummary("implementer", selection));
 
     const plannerPane = string(process.env["HERDR_PANE_ID"], "HERDR_PANE_ID");
     const plannerProcesses = foregroundProcesses(paneProcessInfo(plannerPane));
@@ -713,6 +762,12 @@ export async function runCodeless(args: string[]): Promise<void> {
     }
     requirePaneShell(implementerPane, worktree);
 
+    const collection = JSON.stringify({
+      id: attemptId,
+      stream: slug,
+      change: number,
+      path: reportPath,
+    });
     const started = herdr([
       "agent",
       "start",
@@ -723,6 +778,10 @@ export async function runCodeless(args: string[]): Promise<void> {
       implementerPane,
       "--",
       "--no-session",
+      "--extension",
+      implementerReportingExtension,
+      "--codeless-attempt",
+      collection,
       "--name",
       `${slug}-impl`,
       ...roleSelectionArguments(selection),
@@ -739,7 +798,7 @@ export async function runCodeless(args: string[]): Promise<void> {
       throw new Error(`${implementerName} started in ${startedCwd}, expected ${worktree}`);
     }
 
-    const completed = run("herdr", [
+    run("herdr", [
       "agent",
       "prompt",
       implementerName,
@@ -748,7 +807,19 @@ export async function runCodeless(args: string[]): Promise<void> {
       "--timeout",
       "3600000",
     ]);
-    console.log(completed.trim());
+    let attempt = fallbackAttempt;
+    try {
+      attempt = collectedAttempt(JSON.parse(readFileSync(reportPath, "utf8")), fallbackAttempt);
+      if (attempt === fallbackAttempt) throw new Error("report did not match its dispatch attempt");
+    } catch (error) {
+      console.error(
+        `codeless: warning: could not collect implementer attempt: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      if (existsSync(reportPath)) unlinkSync(reportPath);
+    }
+    observe("implementer attempt", () => recordAttempt(workspaceRoot, slug, number, attempt));
+    console.log(JSON.stringify(attempt));
   }
 
   async function launchPlanner(slug: string): Promise<void> {

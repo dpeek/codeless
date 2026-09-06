@@ -231,18 +231,51 @@ test("approval derives its identity from the active Pi session", async () => {
 
 test("dispatch queues review only after a successful implementer run", async () => {
   const h = harness();
-  h.state.stdout = "settled";
+  h.state.stdout = JSON.stringify({
+    id: "attempt-1",
+    stream: "queries",
+    change: "001",
+    role: "implementer",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:00:01.000Z",
+    outcome: "stop",
+    selection: { provider: "openai-codex", model: "gpt-5.6-terra", thinking: "medium" },
+    text: "Implemented.",
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+    toolCalls: 1,
+    errorCount: 0,
+    incomplete: false,
+  });
   const dispatch = () =>
     h.tools.get("dispatch_stream_implementer")!.execute("call", { changePath }, signal);
-  await dispatch();
+  const result = await dispatch();
   expect(h.execCalls).toEqual([
     ["bun", [executable, "dispatch", changePath], { signal, timeout: 3_700_000 }],
   ]);
   expect(h.messages).toEqual([
     [`/review ${JSON.stringify(changePath)}`, { deliverAs: "steer", expandPromptTemplates: true }],
   ]);
+  expect(result).toMatchObject({ details: { changePath, attempt: { id: "attempt-1" } } });
+  h.state.stdout = JSON.stringify({
+    id: "attempt-1",
+    stream: "queries",
+    change: "001",
+    role: "implementer",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:00:01.000Z",
+    selection: { provider: "", model: "gpt-5.6-terra", thinking: "medium" },
+    outcome: "stop",
+    toolCalls: 1,
+    errorCount: 0,
+    incomplete: false,
+  });
+  await expectFailure(dispatch(), "invalid implementer attempt");
+  h.state.stdout = JSON.stringify({ id: "attempt-1", role: "implementer", incomplete: false });
+  await expectFailure(dispatch(), "invalid implementer attempt");
+  expect(h.messages).toHaveLength(1);
+  h.state.stdout = JSON.stringify({ ...JSON.parse(h.state.stdout), text: "Implemented." });
   h.state.code = 1;
-  await expectFailure(dispatch(), "settled");
+  await expectFailure(dispatch(), "Implemented.");
   expect(h.messages).toHaveLength(1);
 });
 
