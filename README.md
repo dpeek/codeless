@@ -12,8 +12,11 @@ consumer application code. Its tests use independent temporary repositories.
 
 ## Installation
 
-Codeless requires Bun, Git, Herdr, and Pi. The scoped package is configured for
-public npm access. Once published, install it with either package manager:
+Codeless requires Bun, Git, Herdr, and Pi. Planner activation requires Herdr's
+official Pi lifecycle integration; install it with `herdr integration install pi`
+and restart existing Pi processes after updating it. The managed launch and
+session-replacement contract is verified against Herdr 0.8.2 and Pi 0.85.1.
+The scoped package is configured for public npm access. Once published, install it with either package manager:
 
 ```sh
 bun add --global @dpeek/codeless
@@ -95,11 +98,13 @@ transition from review to commit. Required prompts and directions must exist;
 the runner does not generate or copy project instructions.
 
 The package-owned planner extension activates every planner session. Before its
-first project prompt, it requires the exact `<slug>-planner` Pi name, establishes
-and verifies the `<slug>_planner` Herdr identity, and confirms `approve_stream_change`,
+first project prompt, it requires the exact `<slug>-planner` Pi name and verifies
+the `<slug>_planner` Herdr identity, managed interactive readiness, foreground
+worktree, and matching native session reference from Herdr's Pi lifecycle
+integration. It confirms `approve_stream_change`,
 `dispatch_stream_implementer`, `rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change` are active. Missing or
 incompatible activation, identity mismatch, or inactive tools stops before
-`/change`; global Pi extension installation is unnecessary.
+`/change`; global installation of Codeless's extension is unnecessary.
 The approval tool has no arguments. Its extension derives the active
 `<slug>-planner` Pi session and passes it to the backing CLI, which requires it
 to match the worktree and branch. The CLI validates the clean current-integration
@@ -121,7 +126,7 @@ sending `/change` after resources reload. The previous conversation is not copie
 journal and project files carry context.
 
 This uses Pi's `newSession({ setup, withSession })` command API, verified with
-Pi 0.84.3. Only the replacement context activates the selection and sends the
+Pi 0.85.1. Only the replacement context activates the selection and sends the
 new prompt. Configuration changes take effect at the next role-session boundary,
 not during an active planner or implementer. Review and remediation therefore
 continue with their existing session's selection. Duplicate requests
@@ -172,14 +177,14 @@ inspect its targets before using it.
 
 ## Commands
 
-Run creation, opening, and planner launch from a Herdr-managed shell. Landing
-needs no Herdr session.
+Run creation and opening from a Herdr-managed operator shell outside the target
+planner/implementer panes. Herdr requires an available interactive shell in the
+target pane before it can start Pi. Landing needs no Herdr session.
 
 ```sh
 codeless init
 codeless create <slug>
 codeless open <slug>
-codeless planner <slug>
 codeless approve <planner-session>
 codeless dispatch <numbered-change-file>
 codeless rework <numbered-change-file> <feedback>
@@ -195,10 +200,21 @@ checkout, workspace, and integration worktree, then creates only the shared
 state directories and canonical integration worktree when absent. All other
 commands validate their prerequisites and never bootstrap this setup. `create` starts
 `stream/<slug>` from the integration branch and creates its local documents;
-it refuses existing streams. `open` resumes a stream. Both run the configured
-install command, then validate and open a planner beside an idle shell. `planner`
-starts Pi in an existing stream's lone shell after the same role preflight. Its
-activation establishes the same identity as creation and reopening.
+it refuses existing streams. `open` reuses the existing stream workspace and
+one- or two-pane layout. It focuses an existing managed planner without installing
+dependencies, sending another prompt, or replacing its conversation. To restart,
+exit Pi deliberately, leave both stream panes at their shell prompts in the
+stream worktree, then run `codeless open <slug>` from another Herdr shell.
+
+When a planner must be started, creation/opening validates the available shells,
+runs the configured install command and role preflight, adds a right-hand shell
+only when absent, and uses `herdr agent start` for named, readiness-checked Pi
+startup. It verifies the result before sending activation. An occupied or
+mismatched pane, unmanaged agent, ambiguous layout, or failed startup stops;
+Codeless never takes over an existing agent. Pi's display name is separate from
+Herdr's managed agent name. Activation verifies names and native session binding;
+it never renames an unmanaged process. There is no direct `planner` command.
+
 Dispatch validates the implementer selection before touching the planner's
 right-hand pane, starts a fresh ephemeral implementer with Codeless's reporting
 extension and its explicit Pi extension flag, and waits for completion. Rework verifies
@@ -262,8 +278,8 @@ control Pi itself. Preparation can be repeated safely after inspecting a failure
 
 If validation or session replacement fails, the planner stops for operator
 attention. Landing is already complete, and any preparation fast-forward remains
-applied. There is no background retry; restarting the planner recovers from the
-journal and Git state.
+applied. There is no background retry; exit Pi and reopen the stream from another
+Herdr shell to recover from the journal and Git state.
 
 ## Package development
 

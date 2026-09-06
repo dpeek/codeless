@@ -175,6 +175,69 @@ function streams(cwd: string, args: string[], extraEnv: Record<string, string> =
   return { code: child.exitCode, stdout: child.stdout.toString(), stderr: child.stderr.toString() };
 }
 
+function openingHarness(f: ReturnType<typeof fixture>) {
+  const mockBin = join(f.root, "open-bin");
+  const trace = join(f.root, "open-calls.jsonl");
+  const started = join(f.root, "planner-started");
+  mkdirSync(mockBin);
+  writeFileSync(
+    join(mockBin, "herdr"),
+    `#!/usr/bin/env bun
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const env = process.env;
+const cwd = env.STREAMS_TEST_WORKTREE;
+appendFileSync(env.STREAMS_TEST_TRACE, JSON.stringify(args) + "\\n");
+const reply = (result) => console.log(JSON.stringify({ result }));
+const root = env.STREAMS_TEST_ROOT || (existsSync(env.STREAMS_TEST_STARTED) ? "planner" : "shell");
+const agent = { name: "queries_planner", agent: "pi", interactive_ready: true, screen_detection_skipped: true,
+  agent_session: { source: "herdr:pi", agent: "pi", kind: "path", value: "/sessions/current.jsonl" },
+  foreground_cwd: cwd, pane_id: "planner", agent_status: "idle" };
+if (args[0] === "worktree" && args[1] === "open") {
+  reply({ workspace: { workspace_id: "workspace" }, root_pane: { pane_id: "planner" } });
+} else if (args[0] === "pane" && args[1] === "layout") {
+  const count = Number(env.STREAMS_TEST_PANES || 2);
+  reply({ layout: { panes: Array.from({length:count}, (_, i) => ({pane_id: ["planner", "implementer", "extra"][i], rect:{x:i*40, y:0, width:40, height:30}})) } });
+} else if (args[0] === "pane" && args[1] === "process-info") {
+  const pane = args[args.indexOf("--pane") + 1];
+  const occupant = pane === "planner" ? root : env.STREAMS_TEST_RIGHT || "shell";
+  reply({ process_info: { foreground_processes: [{argv0: occupant === "shell" || occupant === "wrongcwd" ? "zsh" : occupant === "busy" ? "vim" : "pi", cwd: occupant === "wrongcwd" ? "/tmp" : cwd}] } });
+} else if (args[0] === "pane" && args[1] === "split") {
+  reply({ pane: { pane_id: "implementer" } });
+} else if (args[0] === "agent" && args[1] === "get") {
+  if (root === "unnamed") delete agent.name;
+  if (root === "busy") agent.agent = "vim";
+  if (root === "unmanaged") agent.interactive_ready = false;
+  reply({ agent });
+} else if (args[0] === "agent" && args[1] === "start") {
+  if (env.STREAMS_TEST_START_FAILURE) { console.error("agent_not_ready"); process.exit(1); }
+  writeFileSync(env.STREAMS_TEST_STARTED, "started");
+  reply({ agent });
+} else if ((args[0] === "agent" && args[1] === "prompt") || (args[0] === "workspace" && args[1] === "focus")) {
+  reply({});
+} else { console.error("Unexpected Herdr call: " + JSON.stringify(args)); process.exit(99); }
+`,
+  );
+  chmodSync(join(mockBin, "herdr"), 0o755);
+  return {
+    env: {
+      HERDR_ENV: "1",
+      HERDR_PANE_ID: "operator",
+      PATH: `${mockBin}:${environment.PATH}`,
+      STREAMS_TEST_TRACE: trace,
+      STREAMS_TEST_WORKTREE: f.stream,
+      STREAMS_TEST_STARTED: started,
+    },
+    calls: () =>
+      existsSync(trace)
+        ? readFileSync(trace, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as string[])
+        : [],
+  };
+}
+
 describe("Codeless integration", () => {
   test("init bootstraps and reuses the default shared workspace without Herdr", () => {
     const f = uninitializedFixture();
@@ -938,7 +1001,7 @@ console.log(JSON.stringify({ result }));
     const config = JSON.parse(readFileSync(path, "utf8"));
     config.planner.thinking = "ultra";
     writeFileSync(path, JSON.stringify(config));
-    const malformed = streams(f.stream, ["planner", "queries"], { HERDR_ENV: "1" });
+    const malformed = streams(f.stream, ["open", "queries"], { HERDR_ENV: "1" });
     expect(malformed.code).toBe(1);
     expect(malformed.stderr).toContain(`Invalid Codeless project configuration at ${path}`);
     expect(malformed.stderr).toContain(
@@ -948,16 +1011,17 @@ console.log(JSON.stringify({ result }));
 
     delete config.planner;
     writeFileSync(path, JSON.stringify(config));
-    const missing = streams(f.stream, ["planner", "queries"], { HERDR_ENV: "1" }).stderr;
+    const missing = streams(f.stream, ["open", "queries"], { HERDR_ENV: "1" }).stderr;
     expect(missing).toContain("Missing key");
     expect(missing).toContain('["planner"]');
   });
 
   test("unavailable or model-incompatible planner selections fail before launch", () => {
     const f = fixture();
+    const h = openingHarness(f);
     const trace = join(f.root, "pi.jsonl");
-    const unavailable = streams(f.stream, ["planner", "queries"], {
-      HERDR_ENV: "1",
+    const unavailable = streams(f.stream, ["open", "queries"], {
+      ...h.env,
       STREAMS_TEST_PI_TRACE: trace,
       STREAMS_TEST_PI_MODELS: JSON.stringify([
         {
@@ -991,8 +1055,8 @@ console.log(JSON.stringify({ result }));
       },
     ]);
 
-    const incompatible = streams(f.stream, ["planner", "queries"], {
-      HERDR_ENV: "1",
+    const incompatible = streams(f.stream, ["open", "queries"], {
+      ...h.env,
       STREAMS_TEST_PI_MODELS: JSON.stringify([
         {
           provider: "openai-codex",
@@ -1005,8 +1069,8 @@ console.log(JSON.stringify({ result }));
     expect(incompatible.stderr).toContain("does not support thinking level high");
     expect(incompatible.stderr).toContain("supported levels: off, low");
 
-    const activationFailure = streams(f.stream, ["planner", "queries"], {
-      HERDR_ENV: "1",
+    const activationFailure = streams(f.stream, ["open", "queries"], {
+      ...h.env,
       STREAMS_TEST_PI_COMMANDS: "[]",
     });
     expect(activationFailure.code).toBe(1);
@@ -1141,45 +1205,6 @@ console.log(JSON.stringify({ result }));
     expect(git(f.main, "rev-parse", "HEAD")).toBe(git(f.stream, "rev-parse", "HEAD"));
   });
 
-  test("planner restart launches Pi in its current shell and activates before its project prompt", () => {
-    const f = fixture();
-    const trace = join(f.root, "planner-pi.jsonl");
-    const result = streams(f.stream, ["planner", "queries"], {
-      HERDR_ENV: "1",
-      HERDR_PANE_ID: "planner",
-      STREAMS_TEST_PI_TRACE: trace,
-    });
-    expect(result).toMatchObject({ code: 0, stderr: "" });
-    expect(result.stdout).toContain("Planner: openai-codex/gpt-5.6-sol (thinking: high)");
-    const calls = readFileSync(trace, "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    const launch = calls.find((entry) => entry.args && !entry.args.includes("rpc"))
-      .args as string[];
-    expect(launch).not.toContain("herdr");
-    expect(launch).toContain(join(packageRoot, "extension/planner.js"));
-    expect(launch).toContain(join(f.stream, "instructions"));
-    expect(launch.slice(launch.indexOf("--model"), launch.indexOf("--model") + 4)).toEqual([
-      "--model",
-      "openai-codex/gpt-5.6-sol",
-      "--thinking",
-      "high",
-    ]);
-    expect(launch.at(-1)).toBe(
-      `/streams-activate ${JSON.stringify(`/change ${JSON.stringify(f.documents)} ${JSON.stringify(join(f.stream, "briefs/queries.md"))}`)}`,
-    );
-    expect(existsSync(join(f.documents, "design.md"))).toBe(false);
-    rmSync(join(f.stream, "briefs/queries.md"));
-    expect(
-      streams(f.stream, ["planner", "queries"], {
-        HERDR_ENV: "1",
-        HERDR_PANE_ID: "planner",
-        STREAMS_TEST_PI_TRACE: trace,
-      }).stderr,
-    ).toContain("Missing stream direction");
-  });
-
   test("creation takes its direction and branch baseline from main and passes project tooling to Herdr", () => {
     const f = fixture();
     const main = change(f.main, "briefs/relationships.md", "# Relationships\n");
@@ -1205,8 +1230,15 @@ if (args[0] === "worktree" && args[1] === "create") {
   const git = Bun.spawnSync(["git", "worktree", "add", "-b", option("--branch"), path, option("--base")], { cwd: option("--cwd") });
   if (git.exitCode !== 0) throw new Error(git.stderr.toString());
   console.log(JSON.stringify({ result: { workspace: { workspace_id: "test-workspace" }, root_pane: { pane_id: "test-planner" } } }));
-} else if (args[0] === "pane") {
+} else if (args[0] === "pane" && args[1] === "layout") {
+  console.log(JSON.stringify({ result: { layout: {panes:[{pane_id:"test-planner",rect:{x:0,y:0,width:80,height:30}}]} } }));
+} else if (args[0] === "pane" && args[1] === "process-info") {
+  console.log(JSON.stringify({ result: { process_info: {foreground_processes:[{argv0:"zsh",cwd:${JSON.stringify(join(f.workspace, "worktree/relationships"))}}]} } }));
+} else if (args[0] === "pane" && args[1] === "split") {
   console.log(JSON.stringify({ result: { pane: { pane_id: "test-implementer" } } }));
+} else if (args[0] === "agent" && args[1] === "start") {
+  console.log(JSON.stringify({ result: { agent: {name:"relationships_planner",agent:"pi",interactive_ready:true,screen_detection_skipped:true,
+    foreground_cwd:${JSON.stringify(join(f.workspace, "worktree/relationships"))},agent_session:{source:"herdr:pi",agent:"pi",kind:"path",value:"/sessions/current.jsonl"}} } }));
 } else console.log(JSON.stringify({ result: {} }));
 `,
     );
@@ -1245,42 +1277,74 @@ if (args[0] === "worktree" && args[1] === "create") {
     );
   });
 
-  test("reopening starts the canonical planner and sends activation before /change", () => {
+  test("reopening reuses the layout and starts one managed planner before activation", () => {
     const f = fixture();
-    const mockBin = join(f.root, "open-mock-bin");
-    const trace = join(f.root, "open-calls.jsonl");
-    mkdirSync(mockBin);
-    writeFileSync(
-      join(mockBin, "herdr"),
-      `#!/usr/bin/env bun
-import { appendFileSync } from "node:fs";
-const args = process.argv.slice(2);
-appendFileSync(process.env.STREAMS_TEST_TRACE, JSON.stringify(args) + "\\n");
-if (args[0] === "worktree" && args[1] === "open") {
-  console.log(JSON.stringify({ result: { workspace: { workspace_id: "workspace" }, root_pane: { pane_id: "planner" } } }));
-} else if (args[0] === "pane" && args[1] === "split") {
-  console.log(JSON.stringify({ result: { pane: { pane_id: "implementer" } } }));
-} else console.log(JSON.stringify({ result: {} }));
-`,
-    );
-    chmodSync(join(mockBin, "herdr"), 0o755);
-    const result = streams(f.personal, ["open", "queries"], {
-      HERDR_ENV: "1",
-      PATH: `${mockBin}:${environment.PATH}`,
-      STREAMS_TEST_TRACE: trace,
-    });
-    expect(result).toMatchObject({ code: 0, stderr: "" });
-    const calls = readFileSync(trace, "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as string[]);
-    const start = calls.find((args) => args[0] === "agent" && args[1] === "start")!;
-    expect(start).toContain("queries_planner");
-    expect(start).toContain("--name");
-    expect(start).toContain("queries-planner");
-    expect(calls.find((args) => args[0] === "agent" && args[1] === "prompt")?.at(-1)).toBe(
+    const h = openingHarness(f);
+    expect(streams(f.personal, ["open", "queries"], h.env)).toMatchObject({ code: 0, stderr: "" });
+    const calls = h.calls();
+    expect(calls.filter((args) => args[0] === "pane" && args[1] === "split")).toHaveLength(0);
+    const starts = calls.filter((args) => args[0] === "agent" && args[1] === "start");
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.slice(0, 7)).toEqual([
+      "agent",
+      "start",
+      "queries_planner",
+      "--kind",
+      "pi",
+      "--pane",
+      "planner",
+    ]);
+    expect(starts[0]).toContain("queries-planner");
+    expect(starts[0]).toContain(join(packageRoot, "extension/planner.js"));
+    const prompt = calls.find((args) => args[0] === "agent" && args[1] === "prompt")!;
+    expect(prompt.at(-1)).toBe(
       `/streams-activate ${JSON.stringify(`/change ${JSON.stringify(f.documents)} ${JSON.stringify(join(f.stream, "briefs/queries.md"))}`)}`,
     );
+    expect(calls.indexOf(prompt)).toBeGreaterThan(calls.indexOf(starts[0]!));
+    const installed = readFileSync(join(f.stream, ".installed.json"), "utf8");
+    expect(streams(f.personal, ["open", "queries"], h.env).code).toBe(0);
+    expect(
+      h.calls().filter((args) => args[0] === "agent" && ["start", "prompt"].includes(args[1]!)),
+    ).toHaveLength(2);
+    expect(readFileSync(join(f.stream, ".installed.json"), "utf8")).toBe(installed);
+  });
+
+  test("reopening a lone shell adds only the missing implementer pane", () => {
+    const f = fixture();
+    const h = openingHarness(f);
+    expect(
+      streams(f.personal, ["open", "queries"], { ...h.env, STREAMS_TEST_PANES: "1" }).code,
+    ).toBe(0);
+    expect(h.calls().filter((args) => args[0] === "pane" && args[1] === "split")).toHaveLength(1);
+  });
+
+  test.each([
+    { STREAMS_TEST_ROOT: "busy" },
+    { STREAMS_TEST_ROOT: "unnamed" },
+    { STREAMS_TEST_ROOT: "unmanaged" },
+    { STREAMS_TEST_ROOT: "wrongcwd" },
+    { STREAMS_TEST_RIGHT: "busy" },
+    { STREAMS_TEST_RIGHT: "wrongcwd" },
+    { STREAMS_TEST_PANES: "3" },
+    { HERDR_PANE_ID: "planner" },
+  ])("reopening refuses occupied, mismatched, ambiguous, or calling panes: %j", (overrides) => {
+    const f = fixture();
+    const h = openingHarness(f);
+    expect(streams(f.personal, ["open", "queries"], { ...h.env, ...overrides }).code).toBe(1);
+    expect(
+      h.calls().filter((args) => ["split", "start", "prompt"].includes(args[1]!)),
+    ).toHaveLength(0);
+    expect(existsSync(join(f.stream, ".installed.json"))).toBe(false);
+  });
+
+  test("failed managed startup never sends activation", () => {
+    const f = fixture();
+    const h = openingHarness(f);
+    expect(
+      streams(f.personal, ["open", "queries"], { ...h.env, STREAMS_TEST_START_FAILURE: "1" })
+        .stderr,
+    ).toContain("agent_not_ready");
+    expect(h.calls().some((args) => args[0] === "agent" && args[1] === "prompt")).toBe(false);
   });
 
   test("creation rejects missing direction or a relative shared workspace before invoking Herdr", () => {

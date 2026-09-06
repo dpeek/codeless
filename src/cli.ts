@@ -25,7 +25,6 @@ const usage = `Usage:
   codeless init
   codeless create <slug>
   codeless open <slug>
-  codeless planner <slug>
   codeless approve <planner-session>
   codeless dispatch <numbered-change-file>
   codeless rework <numbered-change-file> <feedback>
@@ -930,43 +929,6 @@ export async function runCodeless(args: string[]): Promise<void> {
     console.log(JSON.stringify({ pane, worktree }));
   }
 
-  async function launchPlanner(slug: string): Promise<void> {
-    if (process.env["HERDR_ENV"] !== "1") {
-      throw new Error("Run codeless planner from the stream's Herdr-managed shell");
-    }
-    const documents = join(workspaceRoot, "stream", slug);
-    const worktree = join(workspaceRoot, "worktree", slug);
-    const branch = `stream/${slug}`;
-    for (const file of ["planner.md", "change.md"]) {
-      if (!existsSync(join(documents, file))) throw new Error(`Missing ${join(documents, file)}`);
-    }
-    if (canonicalPath(process.cwd()) !== worktree) {
-      throw new Error(`Planner shell is in ${process.cwd()}, expected ${worktree}`);
-    }
-    if (run("git", ["branch", "--show-current"], worktree).trim() !== branch) {
-      throw new Error(`${worktree} is not on ${branch}`);
-    }
-    const prompt = changePrompt(slug, documents, worktree);
-    const selection = readProject(worktree).planner;
-    await validateRoleSelection("planner", selection, worktree, plannerExtension);
-    console.log(roleSelectionSummary("planner", selection));
-    runVisible(
-      "pi",
-      [
-        "--name",
-        `${slug}-planner`,
-        ...roleSelectionArguments(selection),
-        "--extension",
-        plannerExtension,
-        "--prompt-template",
-        promptDirectory(worktree),
-        "--approve",
-        activationPrompt(prompt),
-      ],
-      worktree,
-    );
-  }
-
   function acquireLandSlot(lock: string, slug: string, base: string): "acquired" | "resumed" {
     let acquired = false;
     try {
@@ -1122,7 +1084,7 @@ export async function runCodeless(args: string[]): Promise<void> {
   }
   const slug = target;
   if (
-    (action !== "create" && action !== "open" && action !== "planner" && action !== "land") ||
+    (action !== "create" && action !== "open" && action !== "land") ||
     slug === undefined ||
     !/^[a-z][a-z0-9-]{0,23}$/.test(slug) ||
     details.length > 0
@@ -1131,10 +1093,6 @@ export async function runCodeless(args: string[]): Promise<void> {
   }
   if (action === "land") {
     land(slug);
-    return;
-  }
-  if (action === "planner") {
-    await launchPlanner(slug);
     return;
   }
   if (process.env["HERDR_ENV"] !== "1") {
@@ -1184,33 +1142,104 @@ export async function runCodeless(args: string[]): Promise<void> {
     opened = herdr(["worktree", "open", "--path", worktree, "--label", slug, "--no-focus"]);
   }
 
+  const workspace = id(opened, "workspace", "workspace_id");
+  const plannerPane = id(opened, "root_pane", "pane_id");
+  if (plannerPane === process.env["HERDR_PANE_ID"]) {
+    throw new Error(
+      "Run codeless open from another Herdr shell; the planner pane must be available",
+    );
+  }
+  const planner = `${slug.replaceAll("-", "_")}_planner`;
+  const layout = object(
+    result(herdr(["pane", "layout", "--pane", plannerPane]))["layout"],
+    "result.layout",
+  );
+  const implementerPane = rightPane(layout, plannerPane);
+  const panes = layout["panes"] as JsonObject[];
+  if (panes.length !== (implementerPane === undefined ? 1 : 2)) {
+    throw new Error(
+      "Stream layout must contain only the planner and an optional right-hand implementer pane",
+    );
+  }
+
+  function requireLaunchShell(pane: string): void {
+    const processes = foregroundProcesses(paneProcessInfo(pane));
+    if (processes.length !== 1 || !isShell(processes[0]!)) {
+      throw new Error(`Pane ${pane} must be an available shell before opening the stream`);
+    }
+    if (canonicalPath(string(processes[0]!["cwd"], "shell cwd")) !== worktree) {
+      throw new Error(`Pane ${pane} shell is not in ${worktree}`);
+    }
+  }
+
+  function requireManagedPlanner(agent: JsonObject): void {
+    if (
+      agent["name"] !== planner ||
+      agent["agent"] !== "pi" ||
+      agent["interactive_ready"] !== true
+    ) {
+      throw new Error(
+        `Planner pane ${plannerPane} must contain the Herdr-managed ${planner}; exit an unmanaged agent before reopening`,
+      );
+    }
+    if (canonicalPath(string(agent["foreground_cwd"], "planner foreground cwd")) !== worktree) {
+      throw new Error(`Planner ${planner} is not in ${worktree}`);
+    }
+    const session = object(agent["agent_session"], "planner agent_session");
+    if (
+      agent["screen_detection_skipped"] !== true ||
+      session["source"] !== "herdr:pi" ||
+      session["agent"] !== "pi"
+    ) {
+      throw new Error(
+        "Planner requires Herdr's official Pi lifecycle integration; run herdr integration install pi before reopening",
+      );
+    }
+  }
+
+  if (action === "create" || result(opened)["already_open"] === false) {
+    requirePaneShell(plannerPane, worktree);
+  }
+  const plannerProcesses = foregroundProcesses(paneProcessInfo(plannerPane));
+  if (!(plannerProcesses.length === 1 && isShell(plannerProcesses[0]!))) {
+    requireManagedPlanner(
+      object(result(herdr(["agent", "get", plannerPane]))["agent"], "result.agent"),
+    );
+    run("herdr", ["workspace", "focus", workspace]);
+    console.log(`Focused existing planner ${planner}; its session and work remain unchanged.`);
+    return;
+  }
+  requireLaunchShell(plannerPane);
+  if (implementerPane !== undefined) requireLaunchShell(implementerPane);
+
   console.log("Installing project dependencies...");
   const [install, ...installArgs] = readProject(worktree).install;
   run(install, installArgs, worktree);
-
   const selection = readProject(worktree).planner;
   await validateRoleSelection("planner", selection, worktree, plannerExtension);
   console.log(roleSelectionSummary("planner", selection));
 
-  const workspace = id(opened, "workspace", "workspace_id");
-  const plannerPane = id(opened, "root_pane", "pane_id");
-  const split = herdr([
-    "pane",
-    "split",
-    "--pane",
-    plannerPane,
-    "--direction",
-    "right",
-    "--ratio",
-    "0.5",
-    "--cwd",
-    worktree,
-    "--no-focus",
-  ]);
-  id(split, "pane", "pane_id");
-
-  const planner = `${slug.replaceAll("-", "_")}_planner`;
-  run("herdr", [
+  // Recheck after installation/preflight; Herdr owns final interactive readiness.
+  requireLaunchShell(plannerPane);
+  if (implementerPane === undefined) {
+    const split = herdr([
+      "pane",
+      "split",
+      "--pane",
+      plannerPane,
+      "--direction",
+      "right",
+      "--ratio",
+      "0.5",
+      "--cwd",
+      worktree,
+      "--no-focus",
+    ]);
+    requirePaneShell(id(split, "pane", "pane_id"), worktree);
+  } else {
+    requireLaunchShell(implementerPane);
+  }
+  const started = herdr([
     "agent",
     "start",
     planner,
@@ -1228,10 +1257,11 @@ export async function runCodeless(args: string[]): Promise<void> {
     promptDirectory(worktree),
     "--approve",
   ]);
+  requireManagedPlanner(object(result(started)["agent"], "result.agent"));
   run("herdr", [
     "agent",
     "prompt",
-    planner,
+    plannerPane,
     activationPrompt(changePrompt(slug, documents, worktree)),
   ]);
   run("herdr", ["workspace", "focus", workspace]);

@@ -39,7 +39,12 @@ type SessionOptions = {
 type CommandContext = {
   waitForIdle: () => Promise<void>;
   newSession: (options: SessionOptions) => Promise<{ cancelled: boolean }>;
-  sessionManager: { getEntries: () => SessionEntry[] };
+  cwd: string;
+  sessionManager: {
+    getEntries: () => SessionEntry[];
+    getSessionFile: () => string;
+    getSessionId: () => string;
+  };
   getSystemPromptOptions: () => { selectedTools: string[] };
   modelRegistry: { find: (provider: string, model: string) => Model | undefined };
   readonly model: Model;
@@ -53,6 +58,7 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
   let live = true;
   let model: Model = { provider: "openai-codex", id: "gpt-5.6-luna" };
   let thinkingLevel = "off";
+  const sessionFile = `/sessions/${crypto.randomUUID()}.jsonl`;
   const tools = new Map<string, Tool>();
   const commands = new Map<string, Command>();
   const execCalls: unknown[][] = [];
@@ -70,7 +76,13 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     replacementThinking: "",
     notifications: [] as string[],
     replacementNotifications: [] as string[],
-    agentName: "",
+    agentName: name.replaceAll("-", "_"),
+    agentKind: "pi",
+    interactiveReady: true,
+    lifecycleAuthority: true,
+    sessionRef: sessionFile,
+    sessionSource: "herdr:pi",
+    foregroundCwd: "/worktree",
   };
   const assertLive = () => {
     if (!live) throw new Error("Old Pi context used after session replacement");
@@ -112,7 +124,21 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
         return {
           code: 0,
           stdout: JSON.stringify({
-            result: { agent: { name: state.agentName || name.replaceAll("-", "_") } },
+            result: {
+              agent: {
+                name: state.agentName || undefined,
+                agent: state.agentKind,
+                interactive_ready: state.interactiveReady,
+                screen_detection_skipped: state.lifecycleAuthority,
+                agent_session: {
+                  source: state.sessionSource,
+                  agent: "pi",
+                  kind: "path",
+                  value: state.sessionRef,
+                },
+                foreground_cwd: state.foregroundCwd,
+              },
+            },
           }),
           stderr: "",
         };
@@ -129,7 +155,12 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     waitForIdle: async () => {
       assertLive();
     },
-    sessionManager: { getEntries: () => entries },
+    cwd: "/worktree",
+    sessionManager: {
+      getEntries: () => entries,
+      getSessionFile: () => sessionFile,
+      getSessionId: () => "session-id",
+    },
     getSystemPromptOptions: () => ({
       selectedTools: [
         "approve_stream_change",
@@ -334,22 +365,30 @@ test("activation stops before the project prompt for a wrong Herdr identity or m
   await expectFailure(activate(), "expected queries_planner");
   expect(h.messages).toHaveLength(0);
 
-  h.state.agentName = "";
+  h.state.agentName = "queries_planner";
   h.context.getSystemPromptOptions = () => ({ selectedTools: [] });
   await expectFailure(activate(), "missing required tools");
   expect(h.messages).toHaveLength(0);
 });
 
-test("activation replaces only Herdr's fallback pi identity before the project prompt", async () => {
+test.each([
+  { agentName: "" },
+  { agentName: "pi" },
+  { interactiveReady: false },
+  { agentKind: "claude" },
+  { lifecycleAuthority: false },
+  { sessionRef: "/sessions/other.jsonl" },
+  { sessionSource: "other" },
+  { foregroundCwd: "/other-worktree" },
+])("activation refuses an unbound planner without renaming or prompting: %j", async (overrides) => {
   const h = harness();
-  h.state.agentName = "pi";
-  await h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context);
-  expect(h.execCalls.slice(-3)).toEqual([
-    ["herdr", ["agent", "get", "planner"], { timeout: 30_000 }],
-    ["herdr", ["agent", "rename", "planner", "queries_planner"], { timeout: 30_000 }],
-    ["herdr", ["agent", "get", "planner"], { timeout: 30_000 }],
-  ]);
-  expect(h.messages).toEqual([[kickoff.prompt, { expandPromptTemplates: true }]]);
+  Object.assign(h.state, overrides);
+  await expectFailure(
+    h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context),
+    "Codeless",
+  );
+  expect(h.messages).toHaveLength(0);
+  expect(h.execCalls).toEqual([["herdr", ["agent", "get", "planner"], { timeout: 30_000 }]]);
 });
 
 test("handoff activates the validated planner selection before prompting the replacement", async () => {

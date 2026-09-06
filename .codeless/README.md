@@ -21,19 +21,25 @@ Codeless checkout:
 bun install
 ```
 
-Start or resume a stream with:
+From a separate operator shell (for example this project's `dev` checkout),
+start or resume a stream with:
 
 ```sh
 bun ./bin/codeless create workflow
 bun ./bin/codeless open workflow
 ```
 
-Creation requires an existing `todo/<slug>.md` on `main`. From an existing
-stream's lone shell, `bun ./bin/codeless planner <slug>` starts Pi in that shell.
+Creation requires an existing `todo/<slug>.md` on `main`. Opening reuses the
+stream's layout and focuses an existing managed planner without another prompt.
+To restart, exit Pi and leave both panes at shell prompts, then open the stream
+from another Herdr shell. All launches use `herdr agent start`; there is no
+direct `planner` command. Install Herdr's official Pi integration with
+`herdr integration install pi` before launching.
+
 The package-owned extension is the activation boundary on creation, reopening,
-direct restart, and replacement: it requires `<slug>-planner` in Pi, establishes
-and verifies `<slug>_planner` in Herdr, and verifies its planner tools before any
-project prompt. Activation failure stops visibly without sending `/change`. The
+and replacement: it requires `<slug>-planner` in Pi, verifies `<slug>_planner`
+is managed and ready in Herdr with the matching native Pi session and worktree,
+and verifies its planner tools before any project prompt. Activation failure stops visibly without sending `/change`. The
 runner loads prompts from the stream worktree and explicitly loads its own Pi
 extension. Planner sessions use `openai-codex/gpt-5.6-sol` at `high` thinking;
 implementer sessions use `openai-codex/gpt-5.6-terra` at `medium`. Codeless

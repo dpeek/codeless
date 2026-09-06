@@ -32,7 +32,8 @@ Each project supplies `.codeless/config.json`, a direction at `<directions>/<slu
 `change`, `implement`, `review`, and `commit` prompt templates. Creation refuses a
 missing direction or prompt and an existing stream. Opening requires the existing
 branch, worktree, journal, proposal file, direction, and prompts. Both install
-dependencies before starting the planner.
+dependencies before starting a new planner. Reopening a running managed planner
+only focuses its workspace and preserves its conversation.
 
 ## Command and tool boundaries
 
@@ -41,7 +42,7 @@ by planner tools:
 
 | Surface                                           | Responsibility                                                                |
 | ------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `init`, `create`, `open`, `planner`, `metrics`    | Operator setup, session management, and observation                           |
+| `init`, `create`, `open`, `metrics`               | Operator setup, session management, and observation                           |
 | `approve`, `dispatch`, `rework`, `finish`, `next` | Backing commands for the corresponding planner tools                          |
 | `land`                                            | Commit integration, invoked by the project prompt or operator during recovery |
 | `/change`, `/implement`, `/review`, `/commit`     | Project-owned prompt templates                                                |
@@ -118,17 +119,32 @@ or remediation keeps its implementer setting. A successful post-landing handoff 
 and validates planner configuration from the fast-forwarded stream worktree before the
 replacement session receives its first project prompt.
 
-Every planner launch—creation, reopening, direct `planner` restart, and post-landing
-replacement—uses the package-owned extension as its activation boundary. Before its
-first project prompt, activation requires the exact `<slug>-planner` Pi session name,
-establishes and verifies Herdr reports `<slug-with-hyphens-replaced>_planner`, and
-verifies `approve_stream_change`, `dispatch_stream_implementer`,
-`rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change` are
-active. Missing or incompatible activation, identity mismatch, or an incomplete tool set
-stops visibly before `/change`. A direct restart may begin with Herdr's `pi` fallback
-identity; activation renames and rereads only that fallback. Any other identity mismatch
-stops. Implementers use the corresponding `_impl` and `-impl` forms. The package loads
-its planner extension explicitly; global Pi extension installation is not required.
+Every new planner process uses `herdr agent start`, which owns its managed name
+and waits for interactive readiness before Codeless sends activation. `open`
+reuses the stream workspace and its root planner pane, adding a right-hand shell
+only when absent. It accepts only a lone planner pane or a planner with one
+right-hand pane. Starting a planner requires both existing panes to be shells in
+the stream worktree; occupied, mismatched, or ambiguous layouts stop unchanged.
+The operator must invoke opening from outside those target panes. Reopening an
+existing managed planner focuses it without installation or another prompt.
+
+The package-owned extension activates creation, reopening, and post-landing
+replacement. Before the first project prompt it requires the exact
+`<slug>-planner` Pi name, `<slug-with-hyphens-replaced>_planner` Herdr name,
+managed interactive readiness, matching foreground worktree, and the current
+native Pi session ID/file reported by Herdr's official Pi lifecycle integration.
+It verifies `approve_stream_change`, `dispatch_stream_implementer`,
+`rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change`
+are active. Any missing or incompatible binding stops visibly before `/change`.
+Activation never repairs names. The direct `planner` command is removed;
+recovery exits Pi deliberately and reopens from another Herdr shell.
+
+Pi session replacement keeps the managed process and Herdr name while changing
+its native conversation reference. Codeless revalidates that new binding before
+prompting the replacement. Implementers use the corresponding `_impl` and
+`-impl` names. Codeless loads its own extension explicitly; Herdr's official Pi
+integration supplies lifecycle and native-session reporting. This boundary was
+verified against Herdr 0.8.2 and Pi 0.85.1.
 
 ## Dispatch and review
 

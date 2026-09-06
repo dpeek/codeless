@@ -85,10 +85,9 @@ existing locks, changed heads, and partial failure in self-contained Git tests.
 
 ## Reduce the public command surface
 
-Keep operator commands for initialization, stream creation/reopening, direct
-planner restart, sync, metrics, and deliberate landing recovery. Keep `create`
-and `open` distinct: accidental reuse and accidental creation should still fail.
-Keep `planner` while restarting in an existing shell is a distinct recovery need.
+Keep operator commands for initialization, stream creation/reopening, sync,
+metrics, and deliberate landing recovery. Keep `create` and `open` distinct:
+accidental reuse and accidental creation should still fail.
 
 Move `approve`, `dispatch`, `rework`, `finish`, and `next` out of the public CLI
 into a package-private runner used by the extension. Preserve one implementation
