@@ -7,6 +7,34 @@ turning Codeless into an unattended supervisor. Implemented behavior belongs in
 the [Codeless workflow contract](../spec/workflow.md); this document contains only
 missing behavior and conditional next directions.
 
+## Project initialization
+
+A newly configured consumer currently has to create its integration worktree by
+hand before `codeless create` can run. The failure is safe but leaves routine
+local setup outside the tool that owns the workspace layout.
+
+Add `codeless init` as an idempotent bootstrap for an existing configured
+project. It should:
+
+- require a valid `.codeless/config.json` and existing configured integration
+  branch;
+- resolve the primary checkout and selected workspace using the same rules as
+  every other command;
+- when using the default workspace, ensure `/.codeless/state/` is ignored
+  without ignoring tracked configuration or prompts;
+- create the local state directories and add the integration worktree at
+  `.codeless/state/worktree/<integration-branch>` when that branch is not already
+  checked out;
+- treat an existing valid integration worktree and ignore rule as success; and
+- report the resulting configuration and paths clearly.
+
+Initialization must not create or replace project configuration, prompts, or
+directions; move an existing worktree; change branches; overwrite files; or
+repair ambiguous Git state. Stop with actionable evidence when the intended path
+is occupied or the integration branch is checked out incompatibly. Keep
+worktree creation explicit to `init`; ordinary workflow commands should continue
+to validate their prerequisites without mutating setup implicitly.
+
 ## Structured attempt reports and remaining metrics
 
 The current local metrics cover landed-change counts and dispatch-to-land wall
