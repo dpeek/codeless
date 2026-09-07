@@ -1,6 +1,6 @@
 {
   "name": "@dpeek/codeless",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "An attended planner and implementer workflow for parallel capability development",
   "homepage": "https://github.com/dpeek/codeless#readme",
   "bugs": {
