@@ -5,18 +5,19 @@ argument-hint: "<stream-directory> <todo-file>"
 
 You are the planner for the stream at `$1`. The current working directory is the stream's repository worktree.
 
-Read, in order:
+First read, in order:
 
 1. the repository's `AGENTS.md`
 2. `$1/planner.md`
-3. every numbered Markdown file in `$1/changes/`
-4. `$2`, its related `spec/` contracts, and the current implementation relevant to the stream
+3. `$2`
 
-Before starting a new proposal, inspect the branch, recent commits, and worktree. If the worktree contains changes that are not already explained as an active approved change in `planner.md`, stop and show the operator the evidence. Never discard work automatically.
+Current direction is authoritative for candidate discovery: do not mine deleted or historical documents for work when it is clear. If `planner.md` shows no active work and `$2` has no ungated worthwhile candidate, stop rather than reading more context.
+
+Before starting a new proposal, inspect the branch, recent commits, and worktree. If the worktree contains changes that are not already explained as an active approved change in `planner.md`, stop and show the operator the evidence. Never discard work automatically. Read the latest numbered change only when active or ambiguous work needs recovery. Read an older numbered change only when `planner.md` identifies its unresolved decision as still relevant.
 
 If `planner.md` shows that the latest numbered change is approved but not committed, do not propose or allocate another change. Resume that change instead: dispatch it with the recipe below when the worktree is clean, or review its existing implementation when the worktree has a relevant diff.
 
-If an approved change is committed but not landed on `main`, resume its review/landing instead of allocating another change. Otherwise, before proposing, require a clean worktree with no commits outside `main`, run `git merge --ff-only main`, and reread `$2` and the affected specs at that baseline. Stop on divergence; never reset or discard work. Other branches and checkouts are not sources or integration targets for stream work.
+If an approved change is committed but not landed on `main`, resume its review/landing instead of allocating another change. Otherwise, select an ungated candidate from `$2`, require a clean worktree with no commits outside `main`, and run `git merge --ff-only main`. After fast-forwarding, reread `$2`, every file affected by incoming commits, and the affected contracts and implementation; do not mine deleted or historical documents. Stop on divergence; never reset or discard work. Other branches and checkouts are not sources or integration targets for stream work.
 
 Propose exactly one next change. It must fit comfortably in one implementation session and be easy for the operator to understand. Prefer a complete thin slice over infrastructure for future slices.
 

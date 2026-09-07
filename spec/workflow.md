@@ -213,7 +213,8 @@ integration commit.
 If the integration branch advanced, landing rebases the single stream commit. It then
 rereads and runs the configured project check in the stream worktree, requires checks to
 leave the worktree clean, and fast-forwards the dedicated integration checkout. Only
-successful completion releases the lock.
+successful completion releases the lock. Conflict recovery may run focused checks to
+validate resolutions, but only `land` runs the configured full check after rebase.
 
 A lock owned by another stream stops landing without polling. A rebase conflict, failed
 check, or other error after acquisition retains this stream's lock for deliberate
@@ -234,7 +235,13 @@ validates the updated direction, prompts, and planner selection, and returns the
 session name and `/change` prompt. The extension replaces the Pi session in the same
 pane, preserves its name, activates the validated selection and planner identity, and
 only then sends the project prompt. Conversation history is not copied; the journal and
-project files carry durable context.
+project files carry durable context. The prompt first reads repository guidance, the
+journal, and current direction; it stops when work is wholly gated. It reads the latest
+numbered change only for active or ambiguous recovery and older changes only for
+journal-identified unresolved decisions. Current direction selects candidates before
+relevant contracts and implementation are inspected. After a baseline fast-forward, it
+rereads current direction plus files affected by incoming commits, affected contracts,
+and code, without mining deleted or historical documents for work.
 
 A cancelled or failed replacement stops for operator attention. Landing remains
 complete, and any successful preparation fast-forward remains applied. There is no
@@ -267,10 +274,8 @@ an approval source, or a recovery mechanism.
 ## Limits
 
 Codeless is attended and intentionally has no supervisor, project registry, queue,
-automatic landing retry, stale-lock recovery, or unattended approval. Planner startup
-reads every numbered change, and conflict recovery currently causes the configured
-landing check to run twice. Because the default state is ignored, `git clean -fdx` can
-delete it.
+automatic landing retry, stale-lock recovery, or unattended approval. Because the
+default state is ignored, `git clean -fdx` can delete it.
 
 The single-active-change rule and the requirement to dispatch only approved input still
 partly depend on planner instructions. Approval reconciles records and hashes but does

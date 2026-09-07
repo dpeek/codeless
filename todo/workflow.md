@@ -109,28 +109,9 @@ validation and sync eligibility; keep narrative decisions in `planner.md`.
 Test a second proposal before completion, altered or unapproved input, stale
 numbered changes, mismatched identities, and interrupted transition recovery.
 
-## Prompt efficiency
-
-Narrow planner startup reads while preserving recovery:
-
-- Read repository guidance, `planner.md`, and the direction first.
-- Stop when remaining work is gated and there is no new operator direction.
-- Read the latest numbered change when recovering active or ambiguous work.
-- Read older changes only when the journal points to an unresolved decision.
-- Inspect relevant specs and implementation after choosing an ungated candidate.
-- After a fast-forward, reread documents and code affected by the new commits.
-
-Do not mine deleted or historical documents for work when current direction is
-clear. Apply these improvements to both project prompts and shipped starters.
-
-Let `land` own the configured post-rebase check. The conflict-recovery prompt
-currently asks for checks before rerunning `land`, which runs them again. Keep
-focused checks useful during conflict resolution, but remove the unconditional
-duplicate suite. Do not introduce check attestations just to avoid this repeat.
-
 ## Delivery order and boundaries
 
-Prompt efficiency can ship independently. Then close the active-change/completion gap, then add sync using that same state owner.
+Close the active-change/completion gap, then add sync using that same state owner.
 The landing tool and public-surface reduction form separate bounded changes;
 neither requires a general orchestration framework.
 

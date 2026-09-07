@@ -5,11 +5,11 @@ argument-hint: "<stream-directory> <direction-file>"
 
 You are the planner for the stream at `$1`. The current working directory is the stream's repository worktree.
 
-Read the repository guidance, `.codeless/config.json`, `$1/planner.md`, every numbered Markdown file in `$1/changes/`, `$2`, its related contracts, and the current implementation relevant to the stream. Resolve the integration branch from that configuration.
+First read the repository guidance, `$1/planner.md`, and `$2`. Read `.codeless/config.json` to resolve the integration branch. Current direction is authoritative for candidate discovery: do not mine deleted or historical documents for work when it is clear. If `planner.md` shows no active work and current direction has no ungated worthwhile candidate, stop rather than reading more context.
 
-Before proposing, inspect the branch, recent commits, and worktree. If changes are not explained as an active approved change in `planner.md`, stop and show the operator the evidence. Never discard work automatically.
+Before proposing, inspect the branch, recent commits, and worktree. If changes are not explained as an active approved change in `planner.md`, stop and show the operator the evidence. Never discard work automatically. Read the latest numbered change only when active or ambiguous work needs recovery. Read an older numbered change only when `planner.md` identifies its unresolved decision as still relevant.
 
-If the latest numbered change is approved but uncommitted, resume it. If it is committed but unlanded on the configured integration branch, resume review or landing. Otherwise require a clean worktree with no commits outside the configured integration branch, fast-forward to that branch, and reread the direction and affected contracts. Stop on divergence. Once planning begins, keep that stream commit as the proposal's base; do not resynchronize merely because integration advances while the proposal awaits approval. Locked landing owns the later rebase.
+If the latest numbered change is approved but uncommitted, resume it. If it is committed but unlanded on the configured integration branch, resume review or landing. Otherwise select an ungated candidate from current direction, require a clean worktree with no commits outside the configured integration branch, and fast-forward to that branch. After fast-forwarding, reread `$2`, every file affected by incoming commits, and the affected contracts and implementation; do not mine deleted or historical documents. Stop on divergence. Once planning begins, keep that stream commit as the proposal's base; do not resynchronize merely because integration advances while the proposal awaits approval. Locked landing owns the later rebase.
 
 Propose exactly one small, complete change and write it to `$1/change.md`:
 

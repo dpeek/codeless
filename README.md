@@ -131,7 +131,13 @@ replaces the Pi session in the same pane. It preserves the planner name, applies
 the planner selection read and validated after the stream fast-forwards to the
 captured integration commit, then activates and verifies the replacement before
 sending `/change` after resources reload. The previous conversation is not copied; the
-journal and project files carry context.
+journal and project files carry context. The fresh planner reads repository guidance,
+its journal, and current direction first. It stops on wholly gated work, uses the
+latest numbered change only for active or ambiguous recovery, and reads older changes
+only for journal-linked unresolved decisions. After selecting an ungated candidate it
+reads relevant contracts and implementation; after a fast-forward it also rereads
+current direction and files affected by incoming commits, without mining deleted or
+historical documents for work.
 
 This uses Pi's `newSession({ setup, withSession })` command API, verified with
 Pi 0.85.1. Only the replacement context activates the selection and sends the
@@ -276,10 +282,11 @@ the integration checkout. Success releases the lock. Other branches and
 checkouts are untouched; no push is performed.
 
 Another lock owner causes a stop, without queuing or polling. Rebase conflicts
-or failed checks retain ownership. Resolve the existing failure, then rerun
-`land`; it verifies the recorded integration commit has not changed. To abandon
-a landing, inspect the owner/base and Git state before manually removing the
-lock. There is no automatic stale-lock removal or retry.
+or failed checks retain ownership. During conflict resolution, run focused checks
+when useful; rerun `land` for the configured full check, which it alone owns.
+It verifies the recorded integration commit has not changed. To abandon a landing,
+inspect the owner/base and Git state before manually removing the lock. There is
+no automatic stale-lock removal or retry.
 
 `next` is the session handoff's preparation command. It requires the stream's
 own clean worktree and latest numbered change, a full commit hash present in its

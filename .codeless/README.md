@@ -48,10 +48,14 @@ reload guidance and prompts when the next loop starts; restart an existing
 planner to pick up changes sooner.
 
 The [change prompt](./prompts/change.md) owns proposal and approval instructions.
-The planner reads repository guidance, its journal and numbered changes, the
-selected todo, related specs, and implementation. Completed streams
-fast-forward to `main`; active approved or unlanded changes resume. Unexplained
-dirty or diverged work causes a stop rather than being discarded.
+The planner first reads repository guidance, its journal, and the selected todo.
+It stops when remaining work is gated, reads the latest numbered change only for
+active or ambiguous recovery, and consults older changes only for journal-linked
+unresolved decisions. Current direction selects candidates; related specs and
+implementation are read only after selection. Completed streams fast-forward to
+`main`, then reread current direction plus incoming affected files, contracts, and
+code; active approved or unlanded changes resume. Unexplained dirty or diverged
+work causes a stop rather than being discarded.
 
 After operator approval, the planner calls the tool-owned approval transition
 once, then separately dispatches the returned numbered change to an implementer.

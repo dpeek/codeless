@@ -359,6 +359,20 @@ describe("Codeless integration", () => {
       expect(content).not.toContain(".codeless/README.md");
     }
     const change = readFileSync(join(packageRoot, "prompts/change.md"), "utf8");
+    expect(change).toContain("First read the repository guidance");
+    expect(change).toContain(
+      "no ungated worthwhile candidate, stop rather than reading more context",
+    );
+    expect(change).toContain("do not mine deleted or historical documents for work");
+    expect(change).toContain(
+      "Read the latest numbered change only when active or ambiguous work needs recovery",
+    );
+    expect(change).toContain(
+      "Read an older numbered change only when `planner.md` identifies its unresolved decision",
+    );
+    expect(change).toContain("every file affected by incoming commits");
+    expect(change).toContain("select an ungated candidate from current direction");
+    expect(change).not.toContain("every numbered Markdown file");
     expect(change).toContain("If dispatch returns an error, stop");
     const review = readFileSync(join(packageRoot, "prompts/review.md"), "utf8");
     expect(review).toContain("only after that tool succeeds");
@@ -366,6 +380,8 @@ describe("Codeless integration", () => {
     const commit = readFileSync(join(packageRoot, "prompts/commit.md"), "utf8");
     expect(commit).toContain("landedCommit");
     expect(commit).toContain("another stream owns the integration slot");
+    expect(commit).toContain("Run focused checks when useful to validate a resolution");
+    expect(commit).toContain("`land` alone runs the configured full check");
     expect(commit).toContain("For any other failure while this stream owns the slot");
   });
 
