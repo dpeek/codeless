@@ -4,8 +4,6 @@ import { validAttempt } from "../src/attempt.ts";
 
 const codeless = fileURLToPath(new URL("../bin/codeless", import.meta.url));
 const thinkingLevels = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-const nativeSessionAttempts = 20;
-const nativeSessionRetryDelayMs = 50;
 const requiredTools = [
   "approve_stream_change",
   "dispatch_stream_implementer",
@@ -96,47 +94,28 @@ export default function plannerExtension(pi) {
           throw new Error("Herdr returned an invalid planner identity response");
         }
       };
-      const attempts = activation ? nativeSessionAttempts : 1;
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        const agent = await plannerIdentity();
-        if (agent?.name !== expectedPlanner) {
-          throw new Error(
-            `Codeless planner identity is ${agent?.name ?? "missing"}, expected ${expectedPlanner}; exit this agent and run codeless open ${match[1]} from another Herdr shell`,
-          );
-        }
-        if (agent.agent !== "pi" || agent.interactive_ready !== true) {
-          throw new Error("Codeless requires a Herdr-managed Pi planner started by codeless open");
-        }
-        if (
-          typeof agent.foreground_cwd !== "string" ||
-          resolve(agent.foreground_cwd) !== resolve(ctx.cwd)
-        ) {
-          throw new Error("Codeless planner worktree does not match Herdr's foreground cwd");
-        }
-        const session = agent.agent_session;
-        const expectedSession =
-          session?.kind === "path"
-            ? ctx.sessionManager.getSessionFile()
-            : session?.kind === "id"
-              ? ctx.sessionManager.getSessionId()
-              : undefined;
-        if (
-          agent.screen_detection_skipped !== true ||
-          session?.source !== "herdr:pi" ||
-          session.agent !== "pi" ||
-          !expectedSession
-        ) {
-          throw new Error(
-            "Codeless planner native session does not match Herdr's Pi lifecycle integration",
-          );
-        }
-        if (session.value === expectedSession) break;
-        if (attempt === attempts - 1) {
-          throw new Error(
-            "Codeless planner native session does not match Herdr's Pi lifecycle integration",
-          );
-        }
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, nativeSessionRetryDelayMs));
+      const agent = await plannerIdentity();
+      if (agent?.name !== expectedPlanner) {
+        throw new Error(
+          `Codeless planner identity is ${agent?.name ?? "missing"}, expected ${expectedPlanner}; exit this agent and run codeless open ${match[1]} from another Herdr shell`,
+        );
+      }
+      if (agent.agent !== "pi" || agent.interactive_ready !== true) {
+        throw new Error("Codeless requires a Herdr-managed Pi planner started by codeless open");
+      }
+      if (
+        typeof agent.foreground_cwd !== "string" ||
+        resolve(agent.foreground_cwd) !== resolve(ctx.cwd)
+      ) {
+        throw new Error("Codeless planner worktree does not match Herdr's foreground cwd");
+      }
+      const session = agent.agent_session;
+      if (
+        agent.screen_detection_skipped !== true ||
+        session?.source !== "herdr:pi" ||
+        session.agent !== "pi"
+      ) {
+        throw new Error("Codeless planner requires Herdr's Pi lifecycle integration");
       }
       const activeTools = ctx.getSystemPromptOptions().selectedTools ?? [];
       const missing = requiredTools.filter((tool) => !activeTools.includes(tool));

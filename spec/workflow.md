@@ -140,23 +140,23 @@ existing managed planner focuses it without installation or another prompt.
 The package-owned extension activates creation, reopening, and post-landing
 replacement. Before the first project prompt it requires the exact
 `<slug>-planner` Pi name, `<slug-with-hyphens-replaced>_planner` Herdr name,
-managed interactive readiness, matching foreground worktree, and the current
-native Pi session ID/file reported by Herdr's official Pi lifecycle integration.
-It verifies `approve_stream_change`, `dispatch_stream_implementer`,
-`rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change`
-are active. During replacement, an otherwise-valid previous native session
-reference receives a brief bounded synchronization wait; a wrong name, process,
-lifecycle source, or worktree fails immediately. Any binding that remains missing
-or incompatible stops visibly before `/change`. Activation never repairs names.
-The direct `planner` command is removed;
-recovery exits Pi deliberately and reopens from another Herdr shell.
+managed interactive readiness, matching foreground worktree, Herdr's official Pi
+lifecycle authority and reporter, and the active planner tools. A wrong name,
+process, lifecycle source, worktree, or tool set stops visibly before `/change`.
+Activation never repairs names. Pi's active command context owns the live
+conversation identity. Codeless requires Herdr's official session reporter but
+treats its native session-reference value as asynchronous restore metadata; it
+does not correlate that value with the active Pi session or wait for a changed
+value. The direct `planner` command is removed; recovery exits Pi
+deliberately and reopens from another Herdr shell.
 
 Pi session replacement keeps the managed process and Herdr name while changing
-its native conversation reference. Codeless revalidates that new binding before
-prompting the replacement. Implementers use the corresponding `_impl` and
-`-impl` names. Codeless loads its own extension explicitly; Herdr's official Pi
-integration supplies lifecycle and native-session reporting. This boundary was
-verified against Herdr 0.8.2 and Pi 0.85.1.
+its native conversation reference. Codeless revalidates the replacement's Pi
+name, selection, tools, and Herdr process/lifecycle/worktree binding before
+prompting it. Implementers use the corresponding `_impl` and `-impl` names.
+Codeless loads its own extension explicitly; Herdr's official Pi integration
+supplies lifecycle and native-session reporting. This boundary was verified
+against Herdr 0.8.2 and Pi 0.85.1.
 
 ## Dispatch and review
 

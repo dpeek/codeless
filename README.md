@@ -103,13 +103,14 @@ Required prompts and directions must exist for stream creation and opening.
 The package-owned planner extension activates every planner session. Before its
 first project prompt, it requires the exact `<slug>-planner` Pi name and verifies
 the `<slug>_planner` Herdr identity, managed interactive readiness, foreground
-worktree, and matching native session reference from Herdr's Pi lifecycle
-integration. It confirms `approve_stream_change`,
-`dispatch_stream_implementer`, `rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change` are active. Missing or
-incompatible activation, identity mismatch, or inactive tools stops before
-`/change`. During session replacement, activation allows a brief bounded wait for
-an otherwise-valid Herdr identity to publish the current native Pi reference;
-it never waits on a wrong name, process, lifecycle source, or worktree. Global
+worktree, and Herdr's official Pi lifecycle authority and session reporter. It confirms
+`approve_stream_change`, `dispatch_stream_implementer`,
+`rework_stream_implementer`, `finish_stream_implementer`, and
+`next_stream_change` are active. Missing or incompatible activation, identity
+mismatch, or inactive tools stops before `/change`. Pi's active command context
+owns the live conversation identity. Codeless requires Herdr's official reporter
+but treats its native session-reference value as asynchronous restore metadata,
+not an activation prerequisite. Global
 installation of Codeless's extension is unnecessary.
 The approval tool has no arguments. Its extension derives the active
 `<slug>-planner` Pi session and passes it to the backing CLI, which requires it
@@ -234,8 +235,10 @@ only when absent, and uses `herdr agent start` for named, readiness-checked Pi
 startup. It verifies the result before sending activation. An occupied or
 mismatched pane, unmanaged agent, ambiguous layout, or failed startup stops;
 Codeless never takes over an existing agent. Pi's display name is separate from
-Herdr's managed agent name. Activation verifies names and native session binding;
-it never renames an unmanaged process. There is no direct `planner` command.
+Herdr's managed agent name. Activation verifies the names, process, lifecycle
+authority, and worktree without correlating Herdr's asynchronous restore
+reference to Pi's live session; it never renames an unmanaged process. There is
+no direct `planner` command.
 
 Dispatch validates the implementer selection before touching the planner's
 right-hand pane, starts a fresh ephemeral implementer with Codeless's reporting

@@ -35,8 +35,10 @@ Update only registered Codeless stream worktrees with no unresolved approved
 change, no worktree edits or Git operation in progress, and a head that can
 fast-forward to the captured integration commit. Require a quiescent planner and
 implementer before changing their checkout; clean files alone do not establish
-that agents are idle. Skip active, dirty, diverged, missing, or uncertain streams
-and report each reason. A planner with an existing proposal must reread changed
+that agents are idle. Use Herdr's process and lifecycle state for this decision,
+not correlation with its eventually consistent native-session restore metadata.
+Skip active, dirty, diverged, missing, or uncertain streams and report each
+reason. A planner with an existing proposal must reread changed
 direction/code and refresh the proposal before requesting approval.
 
 For `sync to`, require a clean operator checkout and a fast-forwardable head.
