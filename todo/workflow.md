@@ -7,36 +7,6 @@ supervisor. Implemented behavior belongs in [the workflow contract](../spec/work
 Everything below is proposed or missing behavior; command names are design
 recommendations until implemented.
 
-## Bootstrap reusable prompts
-
-Ship generic starter copies of the current four prompts in package-root
-`prompts/`: `change.md`, `implement.md`, `review.md`, and `commit.md`. Include that
-directory in the published package. Keep `.codeless/prompts/` as this repository's
-editable project configuration; installed copies belong to the consuming project.
-
-Extend `codeless init` to copy missing templates into the invoking checkout's
-configured prompt directory (`.codeless/prompts` in the standard configuration).
-Preserve existing files byte-for-byte, including on repeated or partial init.
-Validate destinations before writing and stop on invalid paths or non-file
-collisions. Report created and preserved files. Upgrading Codeless must not
-silently replace project prompts.
-
-Derive the templates from the current Codeless set, removing consumer-specific
-assumptions, including any Formless domain language. Resolve the integration
-branch and prompt directory from project configuration; do not bake in `main`,
-`.codeless/prompts`, `bun ./bin/codeless`, Codeless's own checks, or a required
-`.codeless/README.md`. Use the installed `codeless` executable until tools own
-those transitions. Preserve the proposal headings, explicit `go` boundary,
-approval-before-dispatch, same-session remediation, and fresh planner handoff.
-
-Init still requires configuration and an existing integration branch. Explain
-that copied prompts are local edits: the operator reviews and commits them,
-then brings that commit onto integration before creating streams. Do not dirty
-the dedicated integration checkout with generated prompt copies.
-
-Verify first init, repeat init, partially populated/custom prompt directories,
-invalid destinations, package contents, and a non-`main` consuming project.
-
 ## Explicit operator synchronization
 
 Add one operator-only `sync` command with explicit direction. Resolve the
@@ -158,8 +128,7 @@ duplicate suite. Do not introduce check attestations just to avoid this repeat.
 
 ## Delivery order and boundaries
 
-Prompt bootstrapping and prompt efficiency can ship independently. Next close
-the active-change/completion gap, then add sync using that same state owner.
+Prompt efficiency can ship independently. Then close the active-change/completion gap, then add sync using that same state owner.
 The landing tool and public-surface reduction form separate bounded changes;
 neither requires a general orchestration framework.
 

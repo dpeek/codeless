@@ -166,6 +166,37 @@ export async function runCodeless(args: string[]): Promise<void> {
     run("git", ["show-ref", "--verify", `refs/heads/${integrationBranch}`], repository);
     const primary = primaryWorktree();
     const target = canonicalPath(join(workspaceRoot, "worktree", integrationBranch));
+    const promptNames = ["change", "implement", "review", "commit"];
+    const promptDirectory = join(repository, project.prompts);
+    const promptTemplates = join(import.meta.dir, "../prompts");
+    const promptPlan = promptNames.map((name) => {
+      const template = join(promptTemplates, `${name}.md`);
+      const destination = join(promptDirectory, `${name}.md`);
+      if (!existsSync(template) || !statSync(template).isFile()) {
+        throw new Error(`Missing packaged prompt template: ${template}`);
+      }
+      if (existsSync(destination) && !statSync(destination).isFile()) {
+        throw new Error(`Project prompt is not a file: ${destination}`);
+      }
+      return { template, destination, exists: existsSync(destination) };
+    });
+    let promptParent = promptDirectory;
+    while (!existsSync(promptParent)) promptParent = dirname(promptParent);
+    if (!statSync(promptParent).isDirectory()) {
+      throw new Error(`Prompt directory ancestor is not a directory: ${promptParent}`);
+    }
+    const resolvedPromptDirectory = canonicalPath(promptDirectory);
+    const promptLocal = relative(repository, resolvedPromptDirectory);
+    if (promptLocal === ".." || promptLocal.startsWith("../") || isAbsolute(promptLocal)) {
+      throw new Error(
+        `Prompt directory must remain inside the invoking checkout: ${promptDirectory}`,
+      );
+    }
+    if (promptPlan.some((entry) => !entry.exists) && repository === target) {
+      throw new Error(
+        "Initialize missing prompts from an editable checkout, not the dedicated integration checkout",
+      );
+    }
     const matchingBranch = registeredWorktrees().filter(
       (worktree) => worktree.branch === `refs/heads/${integrationBranch}`,
     );
@@ -254,6 +285,15 @@ export async function runCodeless(args: string[]): Promise<void> {
       throw new Error(`Integration worktree target is occupied: ${target}`);
     }
 
+    for (const { template, destination, exists } of promptPlan) {
+      if (exists) {
+        console.log(`Preserved prompt: ${destination}`);
+      } else {
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, readFileSync(template), { flag: "wx" });
+        console.log(`Created prompt: ${destination}`);
+      }
+    }
     if (defaultWorkspace && !stateIgnored) {
       const currentIgnore = existsSync(ignoreFile) ? readFileSync(ignoreFile, "utf8") : "";
       appendFileSync(

@@ -94,8 +94,11 @@ The configured prompt directory provides `change.md`, `implement.md`,
 
 Path arguments are JSON-quoted. Each direction is `<directions>/<slug>.md`.
 The project owns prompt contents, approval rules, review criteria, and the
-transition from review to commit. Required prompts and directions must exist;
-the runner does not generate or copy project instructions.
+transition from review to commit. `codeless init` creates missing copies of the
+package's four generic starters, but never replaces existing prompt bytes.
+Review and commit those local prompt edits in the invoking checkout, then bring
+that commit onto the configured integration branch before creating streams.
+Required prompts and directions must exist for stream creation and opening.
 
 The package-owned planner extension activates every planner session. Before its
 first project prompt, it requires the exact `<slug>-planner` Pi name and verifies
@@ -162,8 +165,15 @@ planners or worktree shells are running.
   metrics/<slug>/NNN.json # dispatch/landing times and deduplicated implementer attempts
 ```
 
-Run `codeless init` once after configuring a project. It creates the shared state
-layout and the dedicated integration worktree at
+Run `codeless init` once after configuring a project. It creates missing generic
+`change.md`, `implement.md`, `review.md`, and `commit.md` starters in the
+configured in-project prompt directory, reporting each as created or preserved.
+Existing prompt files are never replaced; review and commit generated files from
+the editable invoking checkout, then bring that commit onto the configured
+integration branch before creating streams. Init refuses to generate missing
+prompts when invoked from the dedicated integration checkout.
+
+It also creates the shared state layout and dedicated integration worktree at
 `<workspace>/worktree/<integration-branch>` without requiring Herdr. For the
 default workspace it adds only `/.codeless/state/` to the primary checkout's
 `.gitignore`; an absolute workspace override does not modify repository ignores.
@@ -195,9 +205,10 @@ codeless metrics
 ```
 
 Slugs are lowercase kebab-case, at most 24 characters. `init` validates the
-existing configuration and integration branch, reports the branch, primary
-checkout, workspace, and integration worktree, then creates only the shared
-state directories and canonical integration worktree when absent. All other
+existing configuration and integration branch, validates all configured prompt
+destinations before mutation, reports created or preserved starters plus the
+branch, primary checkout, workspace, and integration worktree, then creates the
+shared state directories and canonical integration worktree when absent. All other
 commands validate their prerequisites and never bootstrap this setup. `create` starts
 `stream/<slug>` from the integration branch and creates its local documents;
 it refuses existing streams. `open` reuses the existing stream workspace and

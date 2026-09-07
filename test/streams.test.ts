@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -148,8 +149,8 @@ function fixture(integrationBranch = "main") {
   return { root, personal, workspace, main, stream, documents };
 }
 
-function uninitializedFixture() {
-  const f = fixture();
+function uninitializedFixture(integrationBranch = "main") {
+  const f = fixture(integrationBranch);
   git(f.personal, "worktree", "remove", "--force", f.stream);
   git(f.personal, "worktree", "remove", "--force", f.main);
   rmSync(f.workspace, { recursive: true, force: true });
@@ -258,6 +259,114 @@ describe("Codeless integration", () => {
     expect(streams(f.personal, ["init"])).toMatchObject({ code: 0, stderr: "" });
     expect(readFileSync(join(f.personal, ".gitignore"), "utf8")).toBe(before);
     expect(git(join(f.workspace, "worktree/main"), "rev-parse", "HEAD")).toBe(head);
+  });
+
+  test("init creates, preserves, and completes configured prompt templates", () => {
+    const f = uninitializedFixture();
+    rmSync(join(f.personal, "instructions"), { recursive: true });
+    const first = streams(f.personal, ["init"]);
+    expect(first).toMatchObject({ code: 0, stderr: "" });
+    for (const name of ["change", "implement", "review", "commit"]) {
+      const path = join(f.personal, "instructions", `${name}.md`);
+      expect(first.stdout).toContain(`Created prompt: ${path}`);
+      expect(readFileSync(path, "utf8")).toBe(
+        readFileSync(join(packageRoot, "prompts", `${name}.md`), "utf8"),
+      );
+    }
+
+    const changed = join(f.personal, "instructions/change.md");
+    writeFileSync(changed, "Local policy.\n");
+    rmSync(join(f.personal, "instructions/review.md"));
+    const repeated = streams(f.personal, ["init"]);
+    expect(repeated).toMatchObject({ code: 0, stderr: "" });
+    expect(readFileSync(changed, "utf8")).toBe("Local policy.\n");
+    expect(repeated.stdout).toContain(`Preserved prompt: ${changed}`);
+    expect(repeated.stdout).toContain(
+      `Created prompt: ${join(f.personal, "instructions/review.md")}`,
+    );
+  });
+
+  test("generated custom prompts support opening a stream after landing on a non-main integration branch", () => {
+    const f = uninitializedFixture("integration");
+    git(f.personal, "rm", "-r", "instructions");
+    git(f.personal, "commit", "-m", "Remove fixture prompts");
+    git(f.personal, "branch", "-f", "integration", "dev");
+
+    const result = streams(f.personal, ["init"]);
+    expect(result).toMatchObject({ code: 0, stderr: "" });
+    expect(result.stdout).toContain("Integration branch: integration");
+    const integration = join(f.workspace, "worktree/integration");
+    for (const name of ["change", "implement", "review", "commit"]) {
+      expect(existsSync(join(f.personal, "instructions", `${name}.md`))).toBe(true);
+    }
+    git(f.personal, "add", ".gitignore", "instructions");
+    git(f.personal, "commit", "-m", "Add generated prompts");
+    git(integration, "merge", "--ff-only", "dev");
+    git(f.personal, "branch", "-D", "stream/queries");
+    git(f.personal, "worktree", "add", "-b", "stream/queries", f.stream, "integration");
+    mkdirSync(join(f.documents, "changes"), { recursive: true });
+    writeFileSync(join(f.documents, "planner.md"), "# Planner\n");
+    writeFileSync(join(f.documents, "change.md"), "# Next change\n");
+
+    const harness = openingHarness(f);
+    expect(streams(f.personal, ["open", "queries"], harness.env)).toMatchObject({
+      code: 0,
+      stderr: "",
+    });
+  });
+
+  test("init rejects invalid prompt destinations before any mutation", () => {
+    const ancestor = uninitializedFixture();
+    rmSync(join(ancestor.personal, "instructions"), { recursive: true });
+    writeFileSync(join(ancestor.personal, "instructions"), "not a directory\n");
+    const before = readFileSync(join(ancestor.personal, ".gitignore"), "utf8");
+    expect(streams(ancestor.personal, ["init"]).stderr).toContain(
+      "Prompt directory ancestor is not a directory",
+    );
+    expect(existsSync(ancestor.workspace)).toBe(false);
+    expect(readFileSync(join(ancestor.personal, ".gitignore"), "utf8")).toBe(before);
+
+    const collision = uninitializedFixture();
+    rmSync(join(collision.personal, "instructions/change.md"));
+    mkdirSync(join(collision.personal, "instructions/change.md"));
+    expect(streams(collision.personal, ["init"]).stderr).toContain("Project prompt is not a file");
+    expect(existsSync(collision.workspace)).toBe(false);
+  });
+
+  test("init does not generate prompts in the dedicated integration checkout", () => {
+    const f = uninitializedFixture();
+    expect(streams(f.personal, ["init"])).toMatchObject({ code: 0, stderr: "" });
+    const integration = join(f.workspace, "worktree/main");
+    const prompt = join(integration, "instructions/change.md");
+    rmSync(prompt);
+    const result = streams(integration, ["init"]);
+    expect(result.stderr).toContain("editable checkout");
+    expect(existsSync(prompt)).toBe(false);
+  });
+
+  test("package contents expose exactly four starter prompts", () => {
+    const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+      files: string[];
+    };
+    expect(manifest.files).toContain("prompts");
+    const names = ["change.md", "commit.md", "implement.md", "review.md"];
+    expect(readdirSync(join(packageRoot, "prompts")).sort()).toEqual(names);
+    for (const name of names) {
+      const content = readFileSync(join(packageRoot, "prompts", name), "utf8");
+      expect(content).not.toContain("`main`");
+      expect(content).not.toContain(".codeless/prompts");
+      expect(content).not.toContain("bun ./bin/codeless");
+      expect(content).not.toContain(".codeless/README.md");
+    }
+    const change = readFileSync(join(packageRoot, "prompts/change.md"), "utf8");
+    expect(change).toContain("If dispatch returns an error, stop");
+    const review = readFileSync(join(packageRoot, "prompts/review.md"), "utf8");
+    expect(review).toContain("only after that tool succeeds");
+    expect(review).toContain("Do not finish the implementer before approval");
+    const commit = readFileSync(join(packageRoot, "prompts/commit.md"), "utf8");
+    expect(commit).toContain("landedCommit");
+    expect(commit).toContain("another stream owns the integration slot");
+    expect(commit).toContain("For any other failure while this stream owns the slot");
   });
 
   test("init supports an absolute workspace without changing repository ignores", () => {
@@ -1205,8 +1314,8 @@ console.log(JSON.stringify({ result }));
     expect(git(f.main, "rev-parse", "HEAD")).toBe(git(f.stream, "rev-parse", "HEAD"));
   });
 
-  test("creation takes its direction and branch baseline from main and passes project tooling to Herdr", () => {
-    const f = fixture();
+  test("creation takes its direction and branch baseline from the configured integration branch and passes project tooling to Herdr", () => {
+    const f = fixture("integration");
     const main = change(f.main, "briefs/relationships.md", "# Relationships\n");
     const personalConfig = JSON.parse(
       readFileSync(join(f.personal, ".codeless/config.json"), "utf8"),
@@ -1254,7 +1363,9 @@ if (args[0] === "worktree" && args[1] === "create") {
     expect(git(created, "rev-parse", "HEAD")).toBe(main);
     expect(git(created, "branch", "--show-current")).toBe("stream/relationships");
     expect(existsSync(join(documents, "design.md"))).toBe(false);
-    expect(readFileSync(join(documents, "planner.md"), "utf8")).toContain("created from main");
+    expect(readFileSync(join(documents, "planner.md"), "utf8")).toContain(
+      "created from integration",
+    );
     const calls = readFileSync(trace, "utf8")
       .trim()
       .split("\n")

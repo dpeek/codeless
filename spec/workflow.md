@@ -73,16 +73,22 @@ every linked worktree resolves the same primary-checkout state:
 ```
 
 `codeless init` is the explicit, idempotent bootstrap for a configured project. It
-currently creates no configuration, directions, or prompt templates. It requires the
-configured integration branch to exist and creates the shared state directories plus
-that branch's worktree only at `<workspace>/worktree/<integration-branch>`. It reuses
-only the exact registered canonical checkout. An occupied target, a branch registered
-elsewhere, invalid checkout, or ambiguous Git registration stops unchanged; init never
-switches branches, moves worktrees, or repairs conflicts. With the default workspace, it
-accepts a repository ignore rule only when it ignores the state path without covering
-configuration or configured prompts, otherwise appending the narrow `/.codeless/state/`
-rule. An absolute workspace never changes repository ignores. No other command
-bootstraps this layout.
+requires the configured integration branch and creates missing copies of the four
+package-owned generic prompt starters in the invoking checkout's configured in-project
+prompt directory. It validates every template and destination before mutation, reports
+each absolute path as created or preserved, and never replaces an existing prompt file.
+A non-directory ancestor or non-file prompt collision stops without prompt, state, ignore,
+or worktree mutation. Missing prompts are not generated when init is invoked from the
+dedicated integration checkout; the operator must initialize from an editable checkout.
+
+Init creates the shared state directories plus that branch's worktree only at
+`<workspace>/worktree/<integration-branch>`. It reuses only the exact registered
+canonical checkout. An occupied target, a branch registered elsewhere, invalid checkout,
+or ambiguous Git registration stops unchanged; init never switches branches, moves
+worktrees, or repairs conflicts. With the default workspace, it accepts a repository
+ignore rule only when it ignores the state path without covering configuration or
+configured prompts, otherwise appending the narrow `/.codeless/state/` rule. An absolute
+workspace never changes repository ignores. No other command bootstraps this layout.
 
 `planner.md` owns decisions, approvals, review outcomes, landing history, and the
 context needed by a fresh planner. `change.md` is the editable current proposal.
