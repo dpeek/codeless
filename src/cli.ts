@@ -638,11 +638,6 @@ export async function runCodeless(args: string[]): Promise<void> {
     if (run("git", ["branch", "--show-current"], worktree).trim() !== branch)
       throw new Error(`${worktree} is not on ${branch}`);
     requireClean(worktree, branch);
-    if (
-      run("git", ["rev-parse", "HEAD"], worktree).trim() !==
-      run("git", ["rev-parse", integrationBranch], worktree).trim()
-    )
-      throw new Error(`${branch} is not at the current ${integrationBranch} baseline`);
 
     const plannerPane = string(process.env["HERDR_PANE_ID"], "HERDR_PANE_ID");
     const agent = object(result(herdr(["agent", "get", plannerPane]))["agent"], "result.agent");

@@ -99,8 +99,11 @@ into `spec/`.
 After operator `go`, the argument-free planner-only `approve_stream_change` tool
 promotes the current proposal before any dispatch. It derives the active planner session
 and passes it to the backing CLI, which requires its `<slug>-planner` identity to match
-the clean `stream/<slug>` worktree and branch exactly at the current integration branch.
-The proposal needs one usable H1 title plus the `Why`, `Change`, `Acceptance`, and
+the clean `stream/<slug>` worktree and branch. The stream commit established for
+planning is the proposal's base; approval does not compare it with the moving
+integration branch. Landing alone acquires the integration lock and rebases that
+stream change when integration has advanced. The proposal needs one usable H1 title plus
+the `Why`, `Change`, `Acceptance`, and
 `Decisions` headings in that order; titles must be representable by the canonical
 record. The CLI writes `changes/NNN.md` exclusively, where `NNN` is the successor of the
 greatest existing three-digit number (and stops after `999`), then appends a canonical

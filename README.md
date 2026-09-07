@@ -113,9 +113,11 @@ it never waits on a wrong name, process, lifecycle source, or worktree. Global
 installation of Codeless's extension is unnecessary.
 The approval tool has no arguments. Its extension derives the active
 `<slug>-planner` Pi session and passes it to the backing CLI, which requires it
-to match the worktree and branch. The CLI validates the clean current-integration
-baseline and proposal, exclusively creates the next monotonic `changes/NNN.md`,
-and records one hash-backed journal approval. Exact retries reconcile a missing
+to match the clean stream worktree and branch. That stream commit is the
+proposal's base; approval does not compare it with a concurrently advancing
+integration branch. The CLI validates the proposal, exclusively creates the next
+monotonic `changes/NNN.md`, and records one hash-backed journal approval. Landing
+later owns locked synchronization and any required rebase onto integration. Exact retries reconcile a missing
 file or journal step; conflicting state stops. Approval returns the numbered path
 but does not dispatch it. Dispatch uses the package executable, inherits the
 planner's worktree, and queues review only on success. Pi loads the extension

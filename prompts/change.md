@@ -9,7 +9,7 @@ Read the repository guidance, `.codeless/config.json`, `$1/planner.md`, every nu
 
 Before proposing, inspect the branch, recent commits, and worktree. If changes are not explained as an active approved change in `planner.md`, stop and show the operator the evidence. Never discard work automatically.
 
-If the latest numbered change is approved but uncommitted, resume it. If it is committed but unlanded on the configured integration branch, resume review or landing. Otherwise require a clean worktree with no commits outside the configured integration branch, fast-forward to that branch, and reread the direction and affected contracts. Stop on divergence.
+If the latest numbered change is approved but uncommitted, resume it. If it is committed but unlanded on the configured integration branch, resume review or landing. Otherwise require a clean worktree with no commits outside the configured integration branch, fast-forward to that branch, and reread the direction and affected contracts. Stop on divergence. Once planning begins, keep that stream commit as the proposal's base; do not resynchronize merely because integration advances while the proposal awaits approval. Locked landing owns the later rebase.
 
 Propose exactly one small, complete change and write it to `$1/change.md`:
 

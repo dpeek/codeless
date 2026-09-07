@@ -99,6 +99,8 @@ Require approval to reconcile the current change before allocating another.
 Require dispatch to match the current approved file, its recorded hash, and the
 active planner/stream identity. Associate landing/completion with that exact
 change rather than inferring it solely from the greatest numbered filename.
+Keep these checks stream-local: integration advancement after planning belongs
+to locked landing and must not become an approval prerequisite.
 Keep recovery and repeated calls explicit and idempotent. Metrics must remain
 optional observations, never the source of approval or completion truth.
 

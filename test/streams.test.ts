@@ -529,14 +529,12 @@ console.log(JSON.stringify({ result }));
     );
     expect(readFileSync(join(dirty.documents, "planner.md"), "utf8")).toBe(dirtyJournal);
 
-    const diverged = fixture();
-    writeFileSync(join(diverged.documents, "change.md"), proposal);
-    const divergedJournal = readFileSync(join(diverged.documents, "planner.md"), "utf8");
-    change(diverged.stream, "feature.txt", "unlanded\n");
-    expect(streams(diverged.stream, ["approve", "queries-planner"], env).stderr).toContain(
-      "current main baseline",
-    );
-    expect(readFileSync(join(diverged.documents, "planner.md"), "utf8")).toBe(divergedJournal);
+    const advanced = fixture();
+    writeFileSync(join(advanced.documents, "change.md"), proposal);
+    change(advanced.main, "integrated.txt", "another landed change\n");
+    const approvedFromPlannedBase = streams(advanced.stream, ["approve", "queries-planner"], env);
+    expect(approvedFromPlannedBase.code).toBe(0);
+    expect(readFileSync(join(advanced.documents, "changes/001.md"), "utf8")).toBe(proposal);
 
     const conflicting = fixture();
     writeFileSync(join(conflicting.documents, "change.md"), proposal);
