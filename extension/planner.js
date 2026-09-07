@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { validAttempt } from "../src/attempt.ts";
 
 const codeless = fileURLToPath(new URL("../bin/codeless", import.meta.url));
@@ -28,32 +29,66 @@ function selection(value) {
   return { provider: value.provider, model: value.model, thinking: value.thinking };
 }
 
+// Pi reloads extension modules when replacing a session. Keep only in-flight
+// tickets on the process global; neither persisted entries nor a module cache
+// can establish handoff provenance. Every ticket is removed on consume/finally.
+const handoffKey = Symbol.for("@dpeek/codeless/planner-handoffs");
+const handoffs = (globalThis[handoffKey] ??= new Map());
+
+function worktree(cwd) {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    throw new Error("Codeless could not resolve the planner worktree");
+  }
+}
+
 export default function plannerExtension(pi) {
   let registered = false;
   let pending;
+  let admitted;
 
   pi.registerCommand("streams-activate", {
     description: "Verify this planner session before starting its project prompt",
     handler: async (args, ctx) => {
-      let prompt;
+      let input;
       try {
-        prompt = JSON.parse(args);
+        input = JSON.parse(args);
       } catch {
-        throw new Error("Codeless activation requires one JSON-quoted project prompt");
+        throw new Error("Codeless activation requires a JSON prompt or handoff ticket");
       }
-      if (typeof prompt !== "string" || !prompt.startsWith("/change ")) {
+      const replacement = typeof input === "object" && input !== null;
+      const ticket = replacement ? handoffs.get(input.handoff) : undefined;
+      if (replacement) {
+        handoffs.delete(input.handoff);
+        if (!ticket) throw new Error("Codeless handoff is missing, expired, or already consumed");
+      } else if (typeof input !== "string" || !input.startsWith("/change ")) {
         throw new Error("Codeless activation requires a /change project prompt");
       }
-      const activation = ctx.sessionManager
-        .getEntries()
-        .findLast(
-          (entry) =>
-            entry.type === "custom" &&
-            entry.customType === "streams-role-selection" &&
-            entry.data?.role === "planner",
-        );
-      if (activation) {
-        const requested = selection(activation.data.selection);
+      if (admitted) throw new Error("Codeless planner session is already activated");
+      const sessionName = pi.getSessionName();
+      const match = /^([a-z][a-z0-9-]{0,23})-planner$/.exec(sessionName ?? "");
+      if (!match)
+        throw new Error("Codeless activation requires an exact <slug>-planner Pi session name");
+      const expectedPlanner = `${match[1].replaceAll("-", "_")}_planner`;
+      const pane = process.env.HERDR_PANE_ID;
+      if (!pane) throw new Error("Codeless activation requires a Herdr-managed planner pane");
+      const cwd = worktree(ctx.cwd);
+      const sessionId = ctx.sessionManager.getSessionId();
+      if (replacement) {
+        if (
+          ticket.binding.pid !== process.pid ||
+          ticket.binding.pane !== pane ||
+          ticket.binding.cwd !== cwd ||
+          ticket.binding.sessionName !== sessionName ||
+          ticket.sessionId !== sessionId ||
+          ticket.binding.sessionId === sessionId
+        ) {
+          throw new Error(
+            "Codeless handoff does not match this planner process, pane, worktree, or session",
+          );
+        }
+        const requested = ticket.selection;
         const reference = `${requested.provider}/${requested.model}`;
         const model = ctx.modelRegistry.find(requested.provider, requested.model);
         if (!model) throw new Error(`Planner requested ${reference}, but Pi could not find it`);
@@ -66,56 +101,46 @@ export default function plannerExtension(pi) {
           ctx.model.id !== requested.model ||
           pi.getThinkingLevel() !== requested.thinking
         ) {
-          const effective = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "no model";
           throw new Error(
-            `Planner requested ${reference} at thinking level ${requested.thinking}, but Pi applied ${effective} at ${pi.getThinkingLevel()}`,
+            `Codeless planner could not apply ${reference} at thinking level ${requested.thinking}`,
           );
         }
-      }
-      const sessionName = pi.getSessionName();
-      const match = /^([a-z][a-z0-9-]{0,23})-planner$/.exec(sessionName ?? "");
-      if (!match)
-        throw new Error("Codeless activation requires an exact <slug>-planner Pi session name");
-      const expectedPlanner = `${match[1].replaceAll("-", "_")}_planner`;
-      const pane = process.env.HERDR_PANE_ID;
-      if (!pane) throw new Error("Codeless activation requires a Herdr-managed planner pane");
-      const plannerIdentity = async () => {
-        const identity = await pi.exec("herdr", ["agent", "get", pane], { timeout: 30_000 });
-        if (identity.code !== 0) {
+      } else {
+        const plannerIdentity = async () => {
+          const identity = await pi.exec("herdr", ["agent", "get", pane], { timeout: 30_000 });
+          if (identity.code !== 0) {
+            throw new Error(
+              identity.stderr.trim() ||
+                identity.stdout.trim() ||
+                "Codeless could not verify Herdr planner identity",
+            );
+          }
+          try {
+            return JSON.parse(identity.stdout).result?.agent;
+          } catch {
+            throw new Error("Herdr returned an invalid planner identity response");
+          }
+        };
+        const agent = await plannerIdentity();
+        if (agent?.name !== expectedPlanner) {
           throw new Error(
-            identity.stderr.trim() ||
-              identity.stdout.trim() ||
-              "Codeless could not verify Herdr planner identity",
+            `Codeless planner identity is ${agent?.name ?? "missing"}, expected ${expectedPlanner}; exit this agent and run codeless open ${match[1]} from another Herdr shell`,
           );
         }
-        try {
-          return JSON.parse(identity.stdout).result?.agent;
-        } catch {
-          throw new Error("Herdr returned an invalid planner identity response");
+        if (agent.agent !== "pi" || agent.interactive_ready !== true) {
+          throw new Error("Codeless requires a Herdr-managed Pi planner started by codeless open");
         }
-      };
-      const agent = await plannerIdentity();
-      if (agent?.name !== expectedPlanner) {
-        throw new Error(
-          `Codeless planner identity is ${agent?.name ?? "missing"}, expected ${expectedPlanner}; exit this agent and run codeless open ${match[1]} from another Herdr shell`,
-        );
-      }
-      if (agent.agent !== "pi" || agent.interactive_ready !== true) {
-        throw new Error("Codeless requires a Herdr-managed Pi planner started by codeless open");
-      }
-      if (
-        typeof agent.foreground_cwd !== "string" ||
-        resolve(agent.foreground_cwd) !== resolve(ctx.cwd)
-      ) {
-        throw new Error("Codeless planner worktree does not match Herdr's foreground cwd");
-      }
-      const session = agent.agent_session;
-      if (
-        agent.screen_detection_skipped !== true ||
-        session?.source !== "herdr:pi" ||
-        session.agent !== "pi"
-      ) {
-        throw new Error("Codeless planner requires Herdr's Pi lifecycle integration");
+        if (typeof agent.foreground_cwd !== "string" || worktree(agent.foreground_cwd) !== cwd) {
+          throw new Error("Codeless planner worktree does not match Herdr's foreground cwd");
+        }
+        const session = agent.agent_session;
+        if (
+          agent.screen_detection_skipped !== true ||
+          session?.source !== "herdr:pi" ||
+          session.agent !== "pi"
+        ) {
+          throw new Error("Codeless planner requires Herdr's Pi lifecycle integration");
+        }
       }
       const activeTools = ctx.getSystemPromptOptions().selectedTools ?? [];
       const missing = requiredTools.filter((tool) => !activeTools.includes(tool));
@@ -124,8 +149,10 @@ export default function plannerExtension(pi) {
           `Codeless planner activation is missing required tools: ${missing.join(", ")}`,
         );
       }
+      admitted = { pid: process.pid, pane, cwd, sessionName, sessionId };
       ctx.ui.notify(`Planner activated: ${sessionName} / ${expectedPlanner}`, "info");
-      pi.sendUserMessage(prompt, { expandPromptTemplates: true });
+      if (ticket) ticket.activated = true;
+      else pi.sendUserMessage(input, { expandPromptTemplates: true });
     },
   });
 
@@ -135,8 +162,18 @@ export default function plannerExtension(pi) {
       if (!pending || pending.running) throw new Error("No pending Codeless handoff");
       const request = pending;
       request.running = true;
+      let token;
       try {
         await ctx.waitForIdle();
+        if (
+          !admitted ||
+          admitted.pid !== process.pid ||
+          admitted.pane !== process.env.HERDR_PANE_ID ||
+          admitted.cwd !== worktree(ctx.cwd) ||
+          admitted.sessionId !== ctx.sessionManager.getSessionId() ||
+          admitted.sessionName !== pi.getSessionName()
+        )
+          throw new Error("Codeless handoff requires the activated planner session");
         const execution = await pi.exec(
           "bun",
           [codeless, "next", request.changePath, request.landedCommit],
@@ -160,23 +197,39 @@ export default function plannerExtension(pi) {
           throw new Error("Codeless returned an invalid planner handoff");
         }
         const requested = selection(requestedValue);
+        token = randomUUID();
+        const ticket = {
+          binding: admitted,
+          selection: requested,
+          sessionId: undefined,
+          activated: false,
+        };
+        handoffs.set(token, ticket);
         const result = await ctx.newSession({
           setup: async (sm) => {
             sm.appendSessionInfo(sessionName);
-            sm.appendCustomEntry("streams-role-selection", {
-              role: "planner",
-              selection: requested,
-            });
+            ticket.sessionId = sm.getSessionId();
           },
           withSession: async (replacement) => {
-            await replacement.sendUserMessage(`/streams-activate ${JSON.stringify(prompt)}`, {
-              expandPromptTemplates: true,
-            });
+            await replacement.sendUserMessage(
+              `/streams-activate ${JSON.stringify({ handoff: token })}`,
+              {
+                expandPromptTemplates: true,
+              },
+            );
+            // Pi displays command errors instead of rejecting sendUserMessage.
+            // Require an explicit receipt before submitting the project prompt.
+            if (!ticket.activated)
+              throw new Error(
+                "Codeless replacement activation failed; exit Pi and reopen the stream",
+              );
+            await replacement.sendUserMessage(prompt, { expandPromptTemplates: true });
           },
         });
         if (result.cancelled)
           throw new Error("Codeless handoff cancelled; the current session was retained");
       } finally {
+        if (token) handoffs.delete(token);
         pending = undefined;
       }
     },
@@ -212,6 +265,7 @@ export default function plannerExtension(pi) {
         additionalProperties: false,
       },
       async execute(_toolCallId, params) {
+        if (!admitted) throw new Error("Codeless handoff requires an activated planner");
         if (pending) throw new Error("A Codeless handoff is already pending");
         pending = {
           changePath: params.changePath.replace(/^@/, ""),

@@ -100,17 +100,20 @@ Review and commit those local prompt edits in the invoking checkout, then bring
 that commit onto the configured integration branch before creating streams.
 Required prompts and directions must exist for stream creation and opening.
 
-The package-owned planner extension activates every planner session. Before its
-first project prompt, it requires the exact `<slug>-planner` Pi name and verifies
-the `<slug>_planner` Herdr identity, managed interactive readiness, foreground
-worktree, and Herdr's official Pi lifecycle authority and session reporter. It confirms
-`approve_stream_change`, `dispatch_stream_implementer`,
-`rework_stream_implementer`, `finish_stream_implementer`, and
-`next_stream_change` are active. Missing or incompatible activation, identity
-mismatch, or inactive tools stops before `/change`. Pi's active command context
-owns the live conversation identity. Codeless requires Herdr's official reporter
-but treats its native session-reference value as asynchronous restore metadata,
-not an activation prerequisite. Global
+The package-owned planner extension admits each newly launched planner using
+its exact `<slug>-planner` Pi name, `<slug>_planner` Herdr identity, managed
+readiness, canonical worktree, and official Pi lifecycle integration. It checks
+that all five planner tools are active before sending `/change` and binds the
+admitted process, pane, worktree, name, and live session ID.
+
+After landing, replacement activation uses a one-use ticket held in that Pi
+process, bound to the new conversation's session ID. It verifies the local
+identity, effective model/thinking selection, and tools without querying Herdr's
+asynchronous status. Saved session entries cannot replay a handoff. Codeless
+requires activation acknowledgement before submitting `/change` exactly once;
+failed or cancelled handoffs never retry automatically. After a failed
+replacement, exit Pi and reopen the stream from another Herdr shell. Herdr's
+integration still supplies monitoring and external agent control. Global
 installation of Codeless's extension is unnecessary.
 The approval tool has no arguments. Its extension derives the active
 `<slug>-planner` Pi session and passes it to the backing CLI, which requires it
@@ -235,9 +238,9 @@ only when absent, and uses `herdr agent start` for named, readiness-checked Pi
 startup. It verifies the result before sending activation. An occupied or
 mismatched pane, unmanaged agent, ambiguous layout, or failed startup stops;
 Codeless never takes over an existing agent. Pi's display name is separate from
-Herdr's managed agent name. Activation verifies the names, process, lifecycle
-authority, and worktree without correlating Herdr's asynchronous restore
-reference to Pi's live session; it never renames an unmanaged process. There is
+Herdr's managed agent name. Launch admission verifies both names, lifecycle
+authority, and worktree; subsequent conversation replacements use the local
+handoff described above. Codeless never renames an unmanaged process. There is
 no direct `planner` command.
 
 Dispatch validates the implementer selection before touching the planner's

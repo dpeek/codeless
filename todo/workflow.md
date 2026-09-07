@@ -37,6 +37,8 @@ fast-forward to the captured integration commit. Require a quiescent planner and
 implementer before changing their checkout; clean files alone do not establish
 that agents are idle. Use Herdr's process and lifecycle state for this decision,
 not correlation with its eventually consistent native-session restore metadata.
+Keep sync eligibility separate from planner conversation activation: a local
+handoff receipt does not establish that the externally controlled agents are idle.
 Skip active, dirty, diverged, missing, or uncertain streams and report each
 reason. A planner with an existing proposal must reread changed
 direction/code and refresh the proposal before requesting approval.

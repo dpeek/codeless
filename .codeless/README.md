@@ -36,14 +36,14 @@ from another Herdr shell. All launches use `herdr agent start`; there is no
 direct `planner` command. Install Herdr's official Pi integration with
 `herdr integration install pi` before launching.
 
-The package-owned extension is the activation boundary on creation, reopening,
-and replacement: it requires `<slug>-planner` in Pi, verifies `<slug>_planner`
-is managed and ready in Herdr with official lifecycle authority, its session
-reporter, and the matching worktree, and verifies its planner tools before any
-project prompt. Pi owns the live conversation identity; Codeless requires
-Herdr's reporter but treats its native session-reference value as restore
-metadata rather than an activation gate. Activation failure stops
-visibly without sending `/change`. The runner loads prompts from the stream
+The package-owned extension admits newly launched planners by checking their
+Pi and Herdr names, managed readiness, official lifecycle integration, canonical
+worktree, and planner tools. Post-landing replacement uses a one-use ticket in
+the admitted Pi process, bound to the new session ID. It verifies the local
+identity, model/thinking selection and tools, then acknowledges activation before
+sending `/change`. It does not query Herdr status during replacement, and saved
+session entries cannot replay the handoff. Failed activation stops visibly;
+exit Pi and reopen from another Herdr shell to recover. The runner loads prompts from the stream
 worktree and explicitly loads its own Pi extension. Planner sessions use
 `openai-codex/gpt-5.6-sol` at `high` thinking;
 implementer sessions use `openai-codex/gpt-5.6-terra` at `medium`. Codeless

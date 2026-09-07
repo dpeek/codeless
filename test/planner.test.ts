@@ -33,6 +33,7 @@ type SessionOptions = {
   setup: (manager: {
     appendSessionInfo: (name: string) => void;
     appendCustomEntry: (customType: string, data: unknown) => void;
+    getSessionId: () => string;
   }) => Promise<void>;
   withSession: (replacement: Replacement) => Promise<void>;
 };
@@ -53,12 +54,22 @@ type CommandContext = {
 type Model = { provider: string; id: string };
 type Command = { handler: (args: string, ctx: CommandContext) => Promise<void> };
 
-function harness(name = "queries-planner", entries: SessionEntry[] = []) {
+function harness(
+  name = "queries-planner",
+  entries: SessionEntry[] = [],
+  factory = plannerExtension,
+) {
   let start: (() => void) | undefined;
   let live = true;
   let model: Model = { provider: "openai-codex", id: "gpt-5.6-luna" };
   let thinkingLevel = "off";
-  const sessionFile = `/sessions/${crypto.randomUUID()}.jsonl`;
+  const sessionId = crypto.randomUUID();
+  const sessionFile = `/sessions/${sessionId}.jsonl`;
+  const controls = {
+    prepareReplacement: (_ctx: CommandContext) => {},
+    replay: async () => {},
+    nextReplacement: async () => {},
+  };
   const tools = new Map<string, Tool>();
   const commands = new Map<string, Command>();
   const execCalls: unknown[][] = [];
@@ -71,6 +82,20 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     cancelled: false,
     resetCount: 0,
     replacementName: "",
+    replacementHerdrUnavailable: false,
+    swallowReplacementError: false,
+    replacementNameOverride: "",
+    replacementModelAuthenticated: true,
+    replacementIgnoreThinking: false,
+    modelAuthenticated: true,
+    ignoreThinkingSelection: false,
+    reloadCount: 0,
+    replacementLifecycleAuthority: true,
+    replacementSessionSource: "herdr:pi",
+    herdrUnavailable: false,
+    replacementExecCalls: [] as unknown[][],
+    replacementProjectMessages: [] as unknown[][],
+    replacementId: "",
     replacementTools: [] as string[],
     replacementModel: "",
     replacementThinking: "",
@@ -82,12 +107,12 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     lifecycleAuthority: true,
     sessionRef: sessionFile,
     sessionSource: "herdr:pi",
-    foregroundCwd: "/worktree",
+    foregroundCwd: import.meta.dir,
   };
   const assertLive = () => {
     if (!live) throw new Error("Old Pi context used after session replacement");
   };
-  plannerExtension({
+  factory({
     getSessionName: () => {
       assertLive();
       return name;
@@ -104,6 +129,7 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     },
     setModel: async (next: Model) => {
       assertLive();
+      if (!state.modelAuthenticated) return false;
       model = next;
       return true;
     },
@@ -113,12 +139,13 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     },
     setThinkingLevel: (level: string) => {
       assertLive();
-      thinkingLevel = level;
+      if (!state.ignoreThinkingSelection) thinkingLevel = level;
     },
     exec: async (...args: unknown[]) => {
       assertLive();
       execCalls.push(args);
       if (args[0] === "herdr") {
+        if (state.herdrUnavailable) throw new Error("Herdr reporting unavailable");
         const command = args[1] as string[];
         if (command[1] === "rename") state.agentName = command[3]!;
         return {
@@ -155,11 +182,11 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     waitForIdle: async () => {
       assertLive();
     },
-    cwd: "/worktree",
+    cwd: import.meta.dir,
     sessionManager: {
       getEntries: () => entries,
       getSessionFile: () => sessionFile,
-      getSessionId: () => "session-id",
+      getSessionId: () => sessionId,
     },
     getSystemPromptOptions: () => ({
       selectedTools: [
@@ -187,7 +214,9 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
       state.resetCount += 1;
       if (state.cancelled) return { cancelled: true };
       const replacementEntries: SessionEntry[] = [];
+      const newId = crypto.randomUUID();
       await options.setup({
+        getSessionId: () => newId,
         appendSessionInfo: (value) => {
           state.replacementName = value;
         },
@@ -196,15 +225,47 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
         },
       });
       live = false;
-      const replacement = harness(state.replacementName, replacementEntries);
+      const reloaded = await import(`../extension/planner.js?replacement=${newId}`);
+      expect(reloaded.default).not.toBe(factory);
+      state.reloadCount += 1;
+      const replacement = harness(
+        state.replacementNameOverride || state.replacementName,
+        replacementEntries,
+        reloaded.default,
+      );
+      replacement.context.sessionManager.getSessionId = () => newId;
+      replacement.context.sessionManager.getSessionFile = () => `/sessions/${newId}.jsonl`;
+      replacement.state.herdrUnavailable = state.replacementHerdrUnavailable;
+      replacement.state.modelAuthenticated = state.replacementModelAuthenticated;
+      replacement.state.ignoreThinkingSelection = state.replacementIgnoreThinking;
+      controls.nextReplacement = async () => {
+        replacement.state.replacementHerdrUnavailable = true;
+        await replacement.request();
+        await replacement.handoff();
+      };
+      replacement.state.lifecycleAuthority = state.replacementLifecycleAuthority;
+      replacement.state.sessionSource = state.replacementSessionSource;
+      controls.prepareReplacement(replacement.context);
+      state.replacementId = newId;
+      state.replacementExecCalls = replacement.execCalls;
+      state.replacementProjectMessages = replacement.messages;
       state.replacementTools = [...replacement.tools.keys()];
       await options.withSession({
         sendUserMessage: async (...args) => {
           replacementMessages.push(args);
           if (typeof args[0] === "string" && args[0].startsWith("/streams-activate ")) {
-            await replacement.commands
-              .get("streams-activate")!
-              .handler(args[0].slice("/streams-activate ".length), replacement.context);
+            const activationArgs = args[0].slice("/streams-activate ".length);
+            controls.replay = () =>
+              replacement.commands
+                .get("streams-activate")!
+                .handler(activationArgs, replacement.context);
+            try {
+              await controls.replay();
+            } catch (error) {
+              if (!state.swallowReplacementError) throw error;
+            }
+          } else {
+            replacement.messages.push(args);
           }
           state.replacementModel = `${replacement.context.model.provider}/${replacement.context.model.id}`;
           state.replacementThinking = replacement.piThinkingLevel();
@@ -219,6 +280,7 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
   const handoff = () => commands.get("streams-next")!.handler("", context);
   const piThinkingLevel = () => thinkingLevel;
   return {
+    controls,
     tools,
     commands,
     state,
@@ -230,6 +292,14 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     handoff,
     piThinkingLevel,
   };
+}
+
+async function admittedHarness() {
+  const h = harness();
+  await h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context);
+  h.messages.length = 0;
+  h.execCalls.length = 0;
+  return h;
 }
 
 async function expectFailure(operation: Promise<unknown>, message: string) {
@@ -390,24 +460,28 @@ test.each([
   expect(h.execCalls).toEqual([["herdr", ["agent", "get", "planner"], { timeout: 30_000 }]]);
 });
 
-test("replacement activation does not depend on Herdr publishing the new native session", async () => {
-  const h = harness("queries-planner", [
-    {
-      type: "custom",
-      customType: "streams-role-selection",
-      data: { role: "planner", selection: kickoff.selection },
-    },
+test.each([
+  { replacementLifecycleAuthority: false },
+  { replacementSessionSource: "" },
+  { replacementHerdrUnavailable: true },
+])("handoff starts exactly once despite unavailable lifecycle reporting: %j", async (reporting) => {
+  const h = await admittedHarness();
+  Object.assign(h.state, reporting);
+  const previousId = h.context.sessionManager.getSessionId();
+  await h.request();
+  await h.handoff();
+  expect(h.state.replacementId).not.toBe(previousId);
+  expect(h.state.reloadCount).toBe(1);
+  expect(h.state.replacementExecCalls).toEqual([]);
+  expect(h.state.replacementProjectMessages).toEqual([
+    [kickoff.prompt, { expandPromptTemplates: true }],
   ]);
-  h.state.sessionRef = "/sessions/previous.jsonl";
-
-  await h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context);
-
-  expect(h.execCalls).toEqual([["herdr", ["agent", "get", "planner"], { timeout: 30_000 }]]);
-  expect(h.messages).toEqual([[kickoff.prompt, { expandPromptTemplates: true }]]);
+  await expectFailure(h.controls.replay(), "handoff");
+  expect(h.state.replacementProjectMessages).toHaveLength(1);
 });
 
 test("handoff activates the validated planner selection before prompting the replacement", async () => {
-  const h = harness();
+  const h = await admittedHarness();
   let settle!: () => void;
   h.context.waitForIdle = () =>
     new Promise<void>((resolve) => {
@@ -431,9 +505,9 @@ test("handoff activates the validated planner selection before prompting the rep
   expect(h.state.replacementName).toBe("queries-planner");
   expect(h.state.replacementTools).toContain("dispatch_stream_implementer");
   expect(h.state.replacementTools).toContain("next_stream_change");
-  expect(h.replacementMessages).toEqual([
-    [`/streams-activate ${JSON.stringify(kickoff.prompt)}`, { expandPromptTemplates: true }],
-  ]);
+  expect(h.replacementMessages).toHaveLength(2);
+  expect(h.replacementMessages[0]![0]).toMatch(/^\/streams-activate /);
+  expect(h.replacementMessages[1]).toEqual([kickoff.prompt, { expandPromptTemplates: true }]);
   expect(h.state.replacementModel).toBe("openai-codex/gpt-5.6-sol");
   expect(h.state.replacementThinking).toBe("high");
   expect(h.state.replacementNotifications).toEqual([
@@ -443,20 +517,19 @@ test("handoff activates the validated planner selection before prompting the rep
 });
 
 test("handoff does not prompt when the replacement cannot apply its selection", async () => {
-  const h = harness();
+  const h = await admittedHarness();
   h.state.stdout = JSON.stringify({
     ...kickoff,
     selection: { ...kickoff.selection, model: "missing-model" },
   });
   await h.request();
   await expectFailure(h.handoff(), "Pi could not find it");
-  expect(h.replacementMessages).toEqual([
-    [`/streams-activate ${JSON.stringify(kickoff.prompt)}`, { expandPromptTemplates: true }],
-  ]);
+  expect(h.replacementMessages).toHaveLength(1);
+  expect(h.replacementMessages[0]![0]).toMatch(/^\/streams-activate /);
 });
 
 test("failed validation or cancelled replacement stops without sending a next proposal", async () => {
-  const h = harness();
+  const h = await admittedHarness();
   h.state.code = 1;
   h.state.stderr = "stream has unlanded work";
   await h.request();
@@ -475,7 +548,7 @@ test("failed validation or cancelled replacement stops without sending a next pr
 });
 
 test("a mismatched planner handoff cannot reset the current session", async () => {
-  const h = harness();
+  const h = await admittedHarness();
   h.state.stdout = JSON.stringify({ ...kickoff, sessionName: "relationships-planner" });
   await h.request();
   await expectFailure(h.handoff(), "invalid planner handoff");
@@ -487,4 +560,102 @@ test("ordinary sessions expose no stream tools and do not schedule a loop", asyn
   expect(h.tools.size).toBe(0);
   expect(h.messages).toHaveLength(0);
   await expectFailure(h.handoff(), "No pending");
+});
+
+test.each(["cwd", "session", "tools"])(
+  "replacement rejects mismatched %s without prompting",
+  async (field) => {
+    const h = await admittedHarness();
+    h.controls.prepareReplacement = (ctx) => {
+      if (field === "cwd") ctx.cwd = "/other-worktree";
+      if (field === "session") ctx.sessionManager.getSessionId = () => "wrong-session";
+      if (field === "tools") ctx.getSystemPromptOptions = () => ({ selectedTools: [] });
+    };
+    await h.request();
+    await expectFailure(h.handoff(), "Codeless");
+    expect(h.state.replacementProjectMessages).toHaveLength(0);
+    expect(h.state.replacementExecCalls).toHaveLength(0);
+    await expectFailure(h.controls.replay(), "handoff");
+  },
+);
+
+test("a saved selection cannot admit a planner or authorize a handoff", async () => {
+  const h = harness("queries-planner", [
+    {
+      type: "custom",
+      customType: "streams-role-selection",
+      data: { role: "planner", selection: kickoff.selection },
+    },
+  ]);
+  await expectFailure(h.request(), "activat");
+  await expectFailure(
+    h.commands.get("streams-activate")!.handler(JSON.stringify({ handoff: "expired" }), h.context),
+    "handoff",
+  );
+  expect(h.execCalls).toHaveLength(0);
+  expect(h.messages).toHaveLength(0);
+});
+
+test("Pi displaying a command error cannot acknowledge a failed replacement", async () => {
+  const h = await admittedHarness();
+  h.state.swallowReplacementError = true;
+  h.controls.prepareReplacement = (ctx) => {
+    ctx.getSystemPromptOptions = () => ({ selectedTools: [] });
+  };
+  await h.request();
+  await expectFailure(h.handoff(), "replacement activation failed");
+  expect(h.state.replacementProjectMessages).toHaveLength(0);
+  await expectFailure(h.controls.replay(), "handoff");
+});
+
+test("a different pane or planner name cannot consume the handoff", async () => {
+  for (const mismatch of ["pane", "name"]) {
+    const h = await admittedHarness();
+    if (mismatch === "name") h.state.replacementNameOverride = "other-planner";
+    else
+      h.controls.prepareReplacement = () => {
+        process.env["HERDR_PANE_ID"] = "other";
+      };
+    try {
+      await h.request();
+      await expectFailure(h.handoff(), "handoff does not match");
+      expect(h.state.replacementProjectMessages).toHaveLength(0);
+      await expectFailure(h.controls.replay(), "handoff");
+    } finally {
+      process.env["HERDR_PANE_ID"] = "planner";
+    }
+  }
+});
+
+test("launch activation cannot submit its project prompt twice", async () => {
+  const h = await admittedHarness();
+  await expectFailure(
+    h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context),
+    "already activated",
+  );
+  expect(h.messages).toHaveLength(0);
+});
+
+test.each([{ replacementModelAuthenticated: false }, { replacementIgnoreThinking: true }])(
+  "replacement stops when its effective selection is unavailable: %j",
+  async (settings) => {
+    const h = await admittedHarness();
+    Object.assign(h.state, settings);
+    await h.request();
+    const failure = await h.handoff().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(h.state.replacementProjectMessages).toHaveLength(0);
+    await expectFailure(h.controls.replay(), "handoff");
+  },
+);
+
+test("an activated replacement can hand off again without Herdr reporting", async () => {
+  const h = await admittedHarness();
+  h.state.replacementHerdrUnavailable = true;
+  await h.request();
+  await h.handoff();
+  await h.controls.nextReplacement();
+  expect(h.state.replacementExecCalls).toEqual([
+    ["bun", [executable, "next", changePath, landedCommit], { timeout: 30_000 }],
+  ]);
 });

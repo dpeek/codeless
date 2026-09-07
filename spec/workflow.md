@@ -137,26 +137,39 @@ the stream worktree; occupied, mismatched, or ambiguous layouts stop unchanged.
 The operator must invoke opening from outside those target panes. Reopening an
 existing managed planner focuses it without installation or another prompt.
 
-The package-owned extension activates creation, reopening, and post-landing
-replacement. Before the first project prompt it requires the exact
-`<slug>-planner` Pi name, `<slug-with-hyphens-replaced>_planner` Herdr name,
-managed interactive readiness, matching foreground worktree, Herdr's official Pi
-lifecycle authority and reporter, and the active planner tools. A wrong name,
-process, lifecycle source, worktree, or tool set stops visibly before `/change`.
-Activation never repairs names. Pi's active command context owns the live
-conversation identity. Codeless requires Herdr's official session reporter but
-treats its native session-reference value as asynchronous restore metadata; it
-does not correlate that value with the active Pi session or wait for a changed
-value. The direct `planner` command is removed; recovery exits Pi
-deliberately and reopens from another Herdr shell.
+The package-owned extension admits a newly launched planner after checking its
+exact `<slug>-planner` Pi name, `<slug-with-hyphens-replaced>_planner` Herdr
+name, managed interactive readiness, canonical foreground worktree, official Pi
+lifecycle authority and reporter, and active planner tools. Admission binds the
+process ID, pane, canonical worktree, planner name, and native Pi session ID.
+Activation never repairs names or submits the initial prompt twice. The direct
+`planner` command is removed; recovery exits Pi deliberately and reopens from
+another Herdr shell.
 
-Pi session replacement keeps the managed process and Herdr name while changing
-its native conversation reference. Codeless revalidates the replacement's Pi
-name, selection, tools, and Herdr process/lifecycle/worktree binding before
-prompting it. Implementers use the corresponding `_impl` and `-impl` names.
-Codeless loads its own extension explicitly; Herdr's official Pi integration
-supplies lifecycle and native-session reporting. This boundary was verified
-against Herdr 0.8.2 and Pi 0.85.1.
+Post-landing conversation replacement uses that admission, without querying
+Herdr. After idle and workflow validation, Codeless creates a one-use in-memory
+handoff ticket for the admitted parent and requested model/thinking selection.
+Pi's `newSession` setup binds it to the newly allocated native session ID;
+`withSession` invokes activation in the fresh extension. Activation consumes the
+ticket before checking the same process, pane, canonical worktree and planner
+name, a distinct matching replacement session, effective selection, and active
+tools. Saved session entries cannot authorize a handoff. The ticket registry
+survives Pi's extension module reload within the process, but no ticket survives
+consumption, cancellation, failure, or process exit.
+
+Pi displays extension-command errors without rejecting the command submission.
+Codeless therefore requires an explicit activation acknowledgement before
+`withSession` submits the project prompt exactly once through the replacement
+context. Missing acknowledgement stops visibly. Neither old Pi contexts nor
+Herdr's asynchronous lifecycle or native-session snapshots participate in
+replacement activation. Delayed, missing, or rejected lifecycle reports cannot
+block this local handoff. Cancellation retains the old conversation; failed
+replacement requires deliberate exit and reopen, with no automatic retry.
+
+Herdr's official Pi integration remains responsible for lifecycle monitoring,
+external agent control, and native-session restore reporting. Implementers use
+the corresponding `_impl` and `-impl` names. Codeless loads its own extension
+explicitly. This boundary was checked against Herdr 0.8.2 and Pi 0.85.1.
 
 ## Dispatch and review
 
