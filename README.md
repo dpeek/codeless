@@ -107,7 +107,10 @@ worktree, and matching native session reference from Herdr's Pi lifecycle
 integration. It confirms `approve_stream_change`,
 `dispatch_stream_implementer`, `rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change` are active. Missing or
 incompatible activation, identity mismatch, or inactive tools stops before
-`/change`; global installation of Codeless's extension is unnecessary.
+`/change`. During session replacement, activation allows a brief bounded wait for
+an otherwise-valid Herdr identity to publish the current native Pi reference;
+it never waits on a wrong name, process, lifecycle source, or worktree. Global
+installation of Codeless's extension is unnecessary.
 The approval tool has no arguments. Its extension derives the active
 `<slug>-planner` Pi session and passes it to the backing CLI, which requires it
 to match the worktree and branch. The CLI validates the clean current-integration

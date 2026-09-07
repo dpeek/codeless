@@ -81,6 +81,7 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
     interactiveReady: true,
     lifecycleAuthority: true,
     sessionRef: sessionFile,
+    sessionRefReads: [] as string[],
     sessionSource: "herdr:pi",
     foregroundCwd: "/worktree",
   };
@@ -134,7 +135,7 @@ function harness(name = "queries-planner", entries: SessionEntry[] = []) {
                   source: state.sessionSource,
                   agent: "pi",
                   kind: "path",
-                  value: state.sessionRef,
+                  value: state.sessionRefReads.shift() ?? state.sessionRef,
                 },
                 foreground_cwd: state.foregroundCwd,
               },
@@ -389,6 +390,44 @@ test.each([
   );
   expect(h.messages).toHaveLength(0);
   expect(h.execCalls).toEqual([["herdr", ["agent", "get", "planner"], { timeout: 30_000 }]]);
+});
+
+test("activation stops after a bounded wait for a permanently stale native session", async () => {
+  const h = harness("queries-planner", [
+    {
+      type: "custom",
+      customType: "streams-role-selection",
+      data: { role: "planner", selection: kickoff.selection },
+    },
+  ]);
+  h.state.sessionRef = "/sessions/other.jsonl";
+
+  await expectFailure(
+    h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context),
+    "native session does not match",
+  );
+
+  expect(h.execCalls).toHaveLength(20);
+  expect(h.messages).toHaveLength(0);
+});
+
+test("replacement activation waits for Herdr to publish its native session", async () => {
+  const h = harness("queries-planner", [
+    {
+      type: "custom",
+      customType: "streams-role-selection",
+      data: { role: "planner", selection: kickoff.selection },
+    },
+  ]);
+  h.state.sessionRefReads.push("/sessions/previous.jsonl");
+
+  await h.commands.get("streams-activate")!.handler(JSON.stringify(kickoff.prompt), h.context);
+
+  expect(h.execCalls).toEqual([
+    ["herdr", ["agent", "get", "planner"], { timeout: 30_000 }],
+    ["herdr", ["agent", "get", "planner"], { timeout: 30_000 }],
+  ]);
+  expect(h.messages).toEqual([[kickoff.prompt, { expandPromptTemplates: true }]]);
 });
 
 test("handoff activates the validated planner selection before prompting the replacement", async () => {

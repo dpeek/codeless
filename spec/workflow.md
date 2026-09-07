@@ -141,8 +141,11 @@ managed interactive readiness, matching foreground worktree, and the current
 native Pi session ID/file reported by Herdr's official Pi lifecycle integration.
 It verifies `approve_stream_change`, `dispatch_stream_implementer`,
 `rework_stream_implementer`, `finish_stream_implementer`, and `next_stream_change`
-are active. Any missing or incompatible binding stops visibly before `/change`.
-Activation never repairs names. The direct `planner` command is removed;
+are active. During replacement, an otherwise-valid previous native session
+reference receives a brief bounded synchronization wait; a wrong name, process,
+lifecycle source, or worktree fails immediately. Any binding that remains missing
+or incompatible stops visibly before `/change`. Activation never repairs names.
+The direct `planner` command is removed;
 recovery exits Pi deliberately and reopens from another Herdr shell.
 
 Pi session replacement keeps the managed process and Herdr name while changing

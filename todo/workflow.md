@@ -138,6 +138,6 @@ numbered changes, and execution history in the shared local workspace.
 
 Preserve attended approval, one active change per stream, the landing lock,
 and deliberate recovery. Automatic model routing, budgets, dashboards, remote
-telemetry, unattended approval, queues, and background retries remain outside
-this direction. Usage and cost totals alone do not establish quality or model
+telemetry, unattended approval, queues, and background workflow retries remain
+outside this direction. Usage and cost totals alone do not establish quality or model
 superiority.
